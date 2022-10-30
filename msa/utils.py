@@ -46,11 +46,11 @@ def int_to_timeunit(i: int) -> str:
 
 
 def fine_int(precision: int):
-    if precision < 3:
+    if precision <= 3:
         return INT8
-    if precision < 5:
+    if precision <= 5:
         return INT16
-    if precision < 10:
+    if precision <= 10:
         return INT32
     return INT64
 

@@ -11,7 +11,7 @@ class PyODBBCUtilsTests(MSSQLTestCase):
 
     def test_pyodbc_description_to_pyarrow_field(self):
         expected = [
-            pa.field("int", pa.int64(), True),
+            pa.field("int", pa.int32(), True),
             pa.field("bigint", pa.int64(), True),
             pa.field("bit", pa.bool_(), True),
             pa.field("decimal", pa.decimal128(38, 18), True),
