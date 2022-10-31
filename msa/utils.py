@@ -60,7 +60,7 @@ def fine_float(precision: int):
 
 
 def fine_decimal(precision: int, scale: int):
-    if precision + scale > 56:  # 38 + 18
+    if precision > 38:
         return pyarrow.decimal256(precision, scale)
     else:
         return pyarrow.decimal128(precision, scale)
