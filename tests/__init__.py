@@ -44,6 +44,8 @@ class MSSQLTestCase(unittest.TestCase):
     smalldatetime smalldatetime,
     time time,
     string varchar(64) not null,
-    binary varbinary(64)
+    binary varbinary(64),
+    uniqueidentifier uniqueidentifier,
+    datetime_offset DATETIMEOFFSET
 )""")
             c.commit()

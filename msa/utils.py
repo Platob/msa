@@ -22,6 +22,7 @@ DOUBLE = FLOAT64
 DATE = DATE32 = pa.date32()
 DATE64 = pa.date64()
 DATETIME = TIMESTAMP = pa.timestamp("ns")
+TIMESTAMPMS = pa.timestamp("ms")
 UTCTIMESTAMP = pa.timestamp("ns", "UTC")
 TIME = TIME64 = TIMENS = pa.time64("ns")
 TIMEUS = pa.time64("us")
@@ -66,13 +67,29 @@ def fine_decimal(precision: int, scale: int):
         return pyarrow.decimal128(precision, scale)
 
 
+def pyodbc_string(precision=None, scale=None, *args, **kwargs):
+    if precision:
+        if precision > 42000:
+            return LARGE_STRING
+        elif scale:
+            if precision == 34 and scale == 7:
+                # DATETIMEOFFSET
+                return UTCTIMESTAMP
+            elif precision == 27 and scale == 7:
+                # DATETIME2
+                return TIMESTAMP
+            elif precision == 23 and scale == 3:
+                # DATETIME
+                return TIMESTAMPMS
+    return STRING
+
+
 DATATYPES = {
     bytes: lambda precision=None, *args, **kwargs:
         LARGE_BINARY if precision is not None and int(precision) > 42000 else BINARY,
     bytearray: lambda precision=None, *args, **kwargs:
         LARGE_BINARY if precision is not None and int(precision) > 42000 else BINARY,
-    str: lambda precision=None, *args, **kwargs:
-        LARGE_STRING if precision is not None and int(precision) > 42000 else STRING,
+    str: pyodbc_string,
     bool: lambda *args, **kwargs: BOOL,
     float: lambda precision, *args, **kwargs: fine_float(precision),
     int: lambda precision, *args, **kwargs: fine_int(precision),
