@@ -52,7 +52,7 @@ class PyODBCTableTests(MSSQLTestCase):
             pyarrow.array([]),
             pyarrow.array([])
         ], schema=pyarrow.schema([
-            pyarrow.field("int", pyarrow.int64(), nullable=True),
+            pyarrow.field("int", pyarrow.int32(), nullable=True),
             pyarrow.field("string", pyarrow.string(), nullable=False),
             pyarrow.field("date", pyarrow.date32(), nullable=True),
             pyarrow.field("float", pyarrow.float64(), nullable=True),
@@ -77,7 +77,7 @@ class PyODBCTableTests(MSSQLTestCase):
             pyarrow.array([None, None]),
             pyarrow.array([None, None])
         ], schema=pyarrow.schema([
-            pyarrow.field("int", pyarrow.int64(), nullable=True),
+            pyarrow.field("int", pyarrow.int32(), nullable=True),
             pyarrow.field("string", pyarrow.string(), nullable=False),
             pyarrow.field("date", pyarrow.date32(), nullable=True),
             pyarrow.field("float", pyarrow.float64(), nullable=True),
@@ -100,7 +100,7 @@ class PyODBCTableTests(MSSQLTestCase):
             pyarrow.array([]),
             pyarrow.array([])
         ], schema=pyarrow.schema([
-            pyarrow.field("int", pyarrow.int64(), nullable=True),
+            pyarrow.field("int", pyarrow.int32(), nullable=True),
             pyarrow.field("string", pyarrow.string(), nullable=False),
             pyarrow.field("date", pyarrow.date32(), nullable=True),
             pyarrow.field("float", pyarrow.float64(), nullable=True),
@@ -125,7 +125,7 @@ class PyODBCTableTests(MSSQLTestCase):
             pyarrow.array([None, None]),
             pyarrow.array([None, None])
         ], schema=pyarrow.schema([
-            pyarrow.field("int", pyarrow.int64(), nullable=True),
+            pyarrow.field("int", pyarrow.int32(), nullable=True),
             pyarrow.field("string", pyarrow.string(), nullable=False),
             pyarrow.field("date", pyarrow.date32(), nullable=True),
             pyarrow.field("float", pyarrow.float64(), nullable=True),
