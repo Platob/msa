@@ -223,6 +223,17 @@ class SQLTable:
                     commit=commit,
                     cursor=cursor
                 )
+            elif isinstance(data, RecordBatchReader):
+                stmt = self.prepare_insert_statement(data.schema.names)
+                for batch in data:
+                    self.insert_pylist(
+                        [tuple(row.values()) for row in batch.to_pylist()],
+                        batch.schema.names,
+                        fast_executemany=fast_executemany,
+                        stmt=stmt,
+                        commit=commit,
+                        cursor=cursor
+                    )
             else:
                 for batch in data:
                     self.insert_pylist(
