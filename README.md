@@ -34,6 +34,20 @@ with server.connect() as connection:
     with connection.cursor() as cursor:
         cursor.execute("select * from table")
         data = cursor.fetch_arrow_batches(10) # Generator[pyarrow.RecordBatch]
+    
+    table = connection.table(name="table", catalog="master", schema="dbo")
+    
+    table.insert_pylist(
+        rows=[["string", 1]],
+        columns=["string", "int"],
+        commit=True
+    )
+    table.insert_arrow(
+        data=[], # RecordBatch, RecordBatchReader or Iterable[RecordBatch]
+        cast=True, # cast to table.schema_arrow
+        safe=True, # safe cast
+        commit=True
+    )
 ```
 
 
