@@ -6,7 +6,7 @@ __all__ = [
     "LARGE_STRING", "STRING"
 ]
 
-from typing import Union, Iterable, Generator
+from typing import Union, Iterable, Generator, Optional
 
 import pyarrow
 import pyarrow as pa
@@ -43,7 +43,7 @@ LARGE_BINARY = pa.large_binary()
 NULL = pa.null()
 
 
-def get_field(schema: Schema, name: str) -> Field:
+def get_field(schema: Schema, name: str, raise_error: bool = True) -> Optional[Field]:
     try:
         idx = schema.names.index(name)
         return schema.field(idx)
@@ -53,9 +53,19 @@ def get_field(schema: Schema, name: str) -> Field:
         for batch_field in schema:
             if batch_field.name.lower() == name.lower():
                 return batch_field
-        raise KeyError("Cannot find Field<'%s'> in schema %s" % (
-            name, schema.names
-        ))
+        if raise_error:
+            raise KeyError("Cannot find Field<'%s'> in schema %s" % (
+                name, schema.names
+            ))
+        return None
+
+
+def intersect_schemas(schema: Schema, names: list[str]):
+    fields = [get_field(schema, name, False) for name in names]
+    return schema_builder(
+        [_ for _ in fields if _ is not None],
+        schema.metadata
+    )
 
 
 def get_batch_column_or_empty(
@@ -233,6 +243,23 @@ def cast_arrow(
         data = cast_batch(data, schema, safe, fill_empty, drop)
         return RecordBatchReader.from_batches(data.schema, data.to_batches())
     elif drop:
+        if isinstance(data, (list, tuple)):
+            if len(data) == 0:
+                data = RecordBatchReader.from_batches(schema, [])
+            else:
+                data = cast_arrow(
+                    RecordBatchReader.from_batches(data[0].schema, data),
+                    schema,
+                    safe,
+                    fill_empty,
+                    drop
+                )
+        elif isinstance(data, RecordBatchReader):
+            inter = intersect_schemas(schema, data.schema.names)
+            return RecordBatchReader.from_batches(
+                inter,
+                (cast_batch(_, inter, safe, fill_empty, drop) for _ in data)
+            )
         return (cast_batch(_, schema, safe, fill_empty, drop) for _ in data)
     else:
         return RecordBatchReader.from_batches(schema, (cast_batch(_, schema, safe, fill_empty, False) for _ in data))
