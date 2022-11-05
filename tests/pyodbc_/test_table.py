@@ -101,11 +101,11 @@ class PyODBCTableTests(MSSQLTestCase):
     def test_fetch_arrow_batches(self):
         with self.server.cursor() as c:
             c.execute(f"TRUNCATE TABLE {self.PYMSA_UNITTEST}")
-            c.execute(f"""INSERT INTO {self.PYMSA_UNITTEST} (int, string, date, datetime, datetime2)
-            VALUES (1, 'test', '2022-10-20', '2017-03-16 10:35:18.123', '2017-03-16 10:35:18.12345678'),
-            (null, 'test', null, null, null)""")
+            c.execute(f"""INSERT INTO {self.PYMSA_UNITTEST} (int, string, date, datetime, datetime2, time)
+            VALUES (1, 'test', '2022-10-20', '2017-03-16 10:35:18.123', '2017-03-16 10:35:18.12345678', '00:00:00.123456789'),
+            (null, 'test', null, null, null, null)""")
             c.commit()
-            c.execute(f"SELECT int, string, date, float, real, datetime, datetime2 from {self.PYMSA_UNITTEST}")
+            c.execute(f"SELECT int, string, date, float, real, datetime, datetime2, time from {self.PYMSA_UNITTEST}")
             result = list(c.fetch_arrow_batches())[0]
 
         expected = pyarrow.RecordBatch.from_arrays([
@@ -114,8 +114,10 @@ class PyODBCTableTests(MSSQLTestCase):
             pyarrow.array([datetime.date(2022, 10, 20), None]),
             pyarrow.array([None, None]),
             pyarrow.array([None, None]),
-            pyarrow.array([datetime.datetime(2017, 3, 16, 10, 35, 18, 123000), None]).cast(pyarrow.timestamp("ms"), False),
-            pyarrow.array([numpy.datetime64('2017-03-16T10:35:18.123456800'), None])
+            pyarrow.array([datetime.datetime(2017, 3, 16, 10, 35, 18, 123000), None])
+            .cast(pyarrow.timestamp("ms"), False),
+            pyarrow.array([numpy.datetime64('2017-03-16T10:35:18.123456800'), None]),
+            pyarrow.array([123456000, None])
         ], schema=pyarrow.schema([
             pyarrow.field("int", pyarrow.int32(), nullable=True),
             pyarrow.field("string", pyarrow.string(), nullable=False),
@@ -123,7 +125,8 @@ class PyODBCTableTests(MSSQLTestCase):
             pyarrow.field("float", pyarrow.float64(), nullable=True),
             pyarrow.field("real", pyarrow.float32(), nullable=True),
             pyarrow.field("datetime", pyarrow.timestamp("ms"), nullable=True),
-            pyarrow.field("datetime2", pyarrow.timestamp("ns"), nullable=True)
+            pyarrow.field("datetime2", pyarrow.timestamp("ns"), nullable=True),
+            pyarrow.field("time", pyarrow.time64("ns"), nullable=True)
         ]))
 
         self.assertEqual(

@@ -21,20 +21,28 @@ class TableTests(MSSQLTestCase):
     def test_table_schema_arrow(self):
         expected = schema([
             pa.field("int", pa.int32(), True),
+            pa.field("smallint", pa.int16(), True),
+            pa.field("tinyint", pa.int8(), True),
             pa.field("bigint", pa.int64(), True),
             pa.field("bit", pa.bool_(), True),
             pa.field("decimal", pa.decimal128(38, 38), True),
             pa.field("float", pa.float64(), True),
             pa.field("real", pa.float32(), True),
+            pa.field("money", pa.float64(), True),
+            pa.field("small_money", pa.float32(), True),
             pa.field("date", pa.date32(), True),
             pa.field("datetime", pa.timestamp("ms"), True),
             pa.field("datetime2", pa.timestamp("ns"), True),
             pa.field("smalldatetime", pa.timestamp("s"), True),
             pa.field("time", pa.time64("ns"), True),
             pa.field("string", pa.large_string(), True),
-            pa.field("binary", pa.binary(), True),
+            pa.field("binary", pa.large_binary(), True),
             pa.field("uniqueidentifier", pa.string(), True),
-            pa.field("datetime_offset", pa.timestamp("ns", "UTC"), True)
+            pa.field("datetime_offset", pa.timestamp("ns", "UTC"), True),
+            pa.field("ntext", pa.large_string(), True),
+            pa.field("image", pa.large_binary(), True),
+            pa.field("char", pa.large_string(), True),
+            pa.field("nchar", pa.large_string(), True)
         ])
 
         self.assertEqual(self.table.schema_arrow, expected)

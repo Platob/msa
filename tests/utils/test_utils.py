@@ -22,7 +22,7 @@ class UtilsTests(MSSQLTestCase):
             pa.field("time", pa.time64("ns"), True),
             pa.field("varchar", pa.large_string(), False),
             pa.field("nvarchar", pa.large_string(), False),
-            pa.field("binary", pa.binary(), True),
+            pa.field("binary", pa.large_binary(), True),
             pa.field("uniqueidentifier", pa.string(), True),
             pa.field("datetime_offset", pa.timestamp("ns", "UTC"), True),
             pa.field("text", pa.large_string(), True)

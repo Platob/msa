@@ -236,7 +236,7 @@ where schema_name(tab.schema_id) = '%s' and tab.name = '%s'""" % (self.schema, s
         file_format: str = "CSV",
         row_terminator: str = "\n",
         field_quote: str = '"',
-        datafile_type: str = 'widenative',
+        datafile_type: str = 'char',
         first_row: int = 2,
         code_page: str = '65001',
         other_options: str = ""
@@ -259,7 +259,13 @@ where schema_name(tab.schema_id) = '%s' and tab.name = '%s'""" % (self.schema, s
         if cursor is None:
             with self.connection.cursor() as cursor:
                 return self.bulk_insert_file(
-                    file, commit, cursor, file_format
+                    file, commit, cursor, file_format,
+                    row_terminator=row_terminator,
+                    field_quote=field_quote,
+                    datafile_type=datafile_type,
+                    first_row=first_row,
+                    code_page=code_page,
+                    other_options=other_options
                 )
         else:
             options = "FORMAT = '%s', DATAFILETYPE = '%s',  FIRSTROW = %s, FIELDQUOTE = '%s', ROWTERMINATOR = '%s', " \

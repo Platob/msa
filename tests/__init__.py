@@ -33,11 +33,15 @@ class MSSQLTestCase(unittest.TestCase):
                 pass
             c.execute(f"""CREATE TABLE {cls.PYMSA_UNITTEST} (
     int int,
+    smallint smallint,
+    tinyint tinyint,
     bigint bigint,
     bit bit,
     decimal decimal,
     float float,
     real real,
+    money money,
+    small_money smallmoney,
     date date,
     datetime datetime,
     datetime2 datetime2,
@@ -46,6 +50,10 @@ class MSSQLTestCase(unittest.TestCase):
     string varchar(64) not null,
     binary varbinary(64),
     uniqueidentifier uniqueidentifier,
-    datetime_offset DATETIMEOFFSET
+    datetime_offset DATETIMEOFFSET,
+    ntext ntext,
+    image image,
+    char char,
+    nchar nchar
 )""")
             c.commit()

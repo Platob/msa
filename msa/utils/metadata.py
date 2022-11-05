@@ -80,16 +80,16 @@ def pyodbc_string(precision=None, scale=None, *args, **kwargs):
             elif precision == 23 and scale == 3:
                 # DATETIME
                 return TIMESTAMPMS
-        if precision <= 42000:
+        if 0 < precision <= 42000:
             return STRING
     return LARGE_STRING
 
 
 DATATYPES = {
     bytes: lambda precision=None, *args, **kwargs:
-        BINARY if precision is not None and int(precision) <= 42000 else LARGE_BINARY,
+        BINARY if precision is not None and 0 < int(precision) <= 42000 else LARGE_BINARY,
     bytearray: lambda precision=None, *args, **kwargs:
-        BINARY if precision is not None and int(precision) <= 42000 else LARGE_BINARY,
+        BINARY if precision is not None and 0 < int(precision) <= 42000 else LARGE_BINARY,
     str: pyodbc_string,
     bool: lambda *args, **kwargs: BOOL,
     float: lambda precision, *args, **kwargs: fine_float(precision),
@@ -102,21 +102,29 @@ DATATYPES = {
 
 
 STRING_DATATYPES = {
-    "int": DATATYPES[int],
+    "int": lambda *args, **kwargs: INT32,
+    "smallint": lambda *args, **kwargs: INT16,
+    "tinyint": lambda *args, **kwargs: INT8,
     "bigint": DATATYPES[int],
     "bit": DATATYPES[bool],
     "decimal": DATATYPES[decimal.Decimal],
     "float": DATATYPES[float],
+    "money": lambda *args, **kwargs: FLOAT64,
+    "smallmoney": lambda *args, **kwargs: FLOAT32,
     "real": DATATYPES[float],
     "date": DATATYPES[datetime.date],
     "datetime": DATATYPES[datetime.datetime],
     "datetime2": DATATYPES[datetime.datetime],
     "smalldatetime": DATATYPES[datetime.datetime],
     "time": DATATYPES[datetime.time],
+    "char": DATATYPES[str],
+    "nchar": DATATYPES[str],
     "varchar": DATATYPES[str],
     "nvarchar": DATATYPES[str],
     "text": DATATYPES[str],
+    "ntext": DATATYPES[str],
     "varbinary": DATATYPES[bytes],
+    "image": DATATYPES[bytes],
     "uniqueidentifier": lambda **kwargs: STRING,
     "datetimeoffset": lambda scale=None, *args, **kwargs: pa.timestamp(int_to_timeunit(scale), "UTC")
 }
@@ -159,13 +167,18 @@ def mssql_column_to_pyarrow_field(row):
     :rtype: Field
     """
     name, dtype, max_length, precision, scale, nullable, collation = row
-    return field(
-        name,
-        STRING_DATATYPES[dtype](precision=precision, scale=scale),
-        nullable,
-        {
-            "precision": str(precision),
-            "scale": str(scale),
-            "collation": collation if collation else ""
-        }
-    )
+    try:
+        return field(
+            name,
+            STRING_DATATYPES[dtype](precision=precision, scale=scale),
+            nullable,
+            {
+                "precision": str(precision),
+                "scale": str(scale),
+                "collation": collation if collation else ""
+            }
+        )
+    except KeyError:
+        raise NotImplementedError("Unknown sql type '%s', cast it in %s" % (
+            dtype, list(STRING_DATATYPES.keys())
+        ))
