@@ -25,7 +25,7 @@ class TableTests(MSSQLTestCase):
             pa.field("tinyint", pa.int8(), True),
             pa.field("bigint", pa.int64(), True),
             pa.field("bit", pa.bool_(), True),
-            pa.field("decimal", pa.decimal128(38, 38), True),
+            pa.field("decimal", pa.decimal128(15, 5), True),
             pa.field("float", pa.float64(), True),
             pa.field("real", pa.float32(), True),
             pa.field("money", pa.float64(), True),
@@ -35,7 +35,7 @@ class TableTests(MSSQLTestCase):
             pa.field("datetime2", pa.timestamp("ns"), True),
             pa.field("smalldatetime", pa.timestamp("s"), True),
             pa.field("time", pa.time64("ns"), True),
-            pa.field("string", pa.large_string(), True),
+            pa.field("string", pa.large_string(), False),
             pa.field("binary", pa.large_binary(), True),
             pa.field("uniqueidentifier", pa.string(), True),
             pa.field("datetime_offset", pa.timestamp("ns", "UTC"), True),
@@ -72,17 +72,17 @@ class TableTests(MSSQLTestCase):
     def test_get_field(self):
         self.assertEqual(
             self.table.field("string"),
-            pa.field("string", pa.large_string(), True)
+            pa.field("string", pa.large_string(), False)
         )
 
     def test_get_field_case_insensitive(self):
         self.assertEqual(
             self.table.field("String"),
-            pa.field("string", pa.large_string(), True)
+            pa.field("string", pa.large_string(), False)
         )
         self.assertEqual(
             self.table["String"],
-            pa.field("string", pa.large_string(), True)
+            pa.field("string", pa.large_string(), False)
         )
 
     def test_insert_pylist(self):
@@ -152,6 +152,60 @@ class TableTests(MSSQLTestCase):
 
         self.assertEqual(
             [
+                [
+                    1, 'test', datetime.date(2022, 10, 20), None, None,
+                    datetime.datetime(2017, 3, 16, 10, 35, 18, 123000),
+                    numpy.datetime64('2017-03-16T10:35:18.123456000'), b'test'
+                ],
+                [
+                    None, 'test', None, None, None, None, None, None
+                ]
+            ],
+            result
+        )
+
+    def test_insert_pyarrow_batches(self):
+        data = pyarrow.RecordBatch.from_arrays([
+            pyarrow.array([1, None]),
+            pyarrow.array(['test', 'test']),
+            pyarrow.array([datetime.date(2022, 10, 20), None]),
+            pyarrow.array([None, None]),
+            pyarrow.array([None, None]),
+            pyarrow.array([datetime.datetime(2017, 3, 16, 10, 35, 18, 123000), None])
+            .cast(pyarrow.timestamp("ms"), False),
+            pyarrow.array([numpy.datetime64('2017-03-16T10:35:18.123456800'), None]),
+            pyarrow.array([b"test", None])
+        ], schema=pyarrow.schema([
+            pyarrow.field("int", pyarrow.int32(), nullable=True),
+            pyarrow.field("string", pyarrow.string(), nullable=False),
+            pyarrow.field("date", pyarrow.date32(), nullable=True),
+            pyarrow.field("float", pyarrow.float64(), nullable=True),
+            pyarrow.field("real", pyarrow.float32(), nullable=True),
+            pyarrow.field("datetime", pyarrow.timestamp("ms"), nullable=True),
+            pyarrow.field("datetime2", pyarrow.timestamp("ns"), nullable=True),
+            pyarrow.field("binary", pyarrow.binary(), nullable=True)
+        ]))
+
+        self.table.truncate()
+        self.table.insert_arrow([data, data], cast=True, safe=True, commit=True)
+
+        result = [
+            list(_)
+            for _ in self.server.cursor().execute(
+                f"select int, string, date, float, real, datetime, datetime2, binary from {self.PYMSA_UNITTEST}"
+            ).fetchall()
+        ]
+
+        self.assertEqual(
+            [
+                [
+                    1, 'test', datetime.date(2022, 10, 20), None, None,
+                    datetime.datetime(2017, 3, 16, 10, 35, 18, 123000),
+                    numpy.datetime64('2017-03-16T10:35:18.123456000'), b'test'
+                ],
+                [
+                    None, 'test', None, None, None, None, None, None
+                ],
                 [
                     1, 'test', datetime.date(2022, 10, 20), None, None,
                     datetime.datetime(2017, 3, 16, 10, 35, 18, 123000),

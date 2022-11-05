@@ -45,6 +45,22 @@ def prepare_bulk_csv_batch(data: Union[RecordBatch, Table]) -> Union[RecordBatch
     ]))
 
 
+TABLE_TYPE_COLUMNS_STATEMENT = {
+    "BASE TABLE": """select col.name as name,
+    type_name(user_type_id) as dtype, col.max_length as max_length, col.precision as precision, col.scale as scale,
+    col.is_nullable as nullable, col.collation_name as collation
+from sys.tables as tab
+inner join sys.columns as col on tab.object_id = col.object_id
+where schema_name(tab.schema_id) = '%s' and tab.name = '%s'""",
+    "VIEW": """select c.name as name,
+    type_name(user_type_id) as dtype, c.max_length, c.precision, c.scale, c.is_nullable as nullable,
+    c.collation_name as collation
+from sys.columns c
+join sys.views v on v.object_id = c.object_id
+where schema_name(v.schema_id) = '%s' and object_name(c.object_id) = '%s'"""
+}
+
+
 class SQLTable:
 
     def __init__(
@@ -87,13 +103,9 @@ class SQLTable:
             self.__schema_arrow = schema(
                 [
                     mssql_column_to_pyarrow_field(row)
-                    for row in self.connection.cursor().execute("""select col.name as name,
-    t.name as dtype, t.max_length as max_length, t.precision as precision, t.scale as scale,
-    t.is_nullable as nullable, t.collation_name as collation
-from sys.tables as tab
-    inner join sys.columns as col on tab.object_id = col.object_id
-    left join sys.types as t on col.user_type_id = t.user_type_id
-where schema_name(tab.schema_id) = '%s' and tab.name = '%s'""" % (self.schema, self.name)).fetchall()
+                    for row in self.connection.cursor().execute(
+                        TABLE_TYPE_COLUMNS_STATEMENT[self.type] % (self.schema, self.name)
+                    ).fetchall()
                 ],
                 metadata={
                     "engine": "mssql",
@@ -187,11 +199,7 @@ where schema_name(tab.schema_id) = '%s' and tab.name = '%s'""" % (self.schema, s
                 data, None, cast, safe
             )
         if cast:
-            data = cast_arrow(data, schema([
-                self.field(name) for name in data.schema.names
-            ]), safe, fill_empty=False)
-        elif isinstance(data, Table):
-            data = RecordBatchReader.from_batches(data.schema, data.to_batches())
+            data = cast_arrow(data, self.schema_arrow, safe, fill_empty=False, drop=True)
 
         if cursor is None:
             with self.connection.cursor() as cursor:
@@ -206,7 +214,7 @@ where schema_name(tab.schema_id) = '%s' and tab.name = '%s'""" % (self.schema, s
                     cursor=cursor
                 )
         else:
-            if isinstance(data, RecordBatch):
+            if isinstance(data, (RecordBatch, Table)):
                 return self.insert_pylist(
                     [tuple(row.values()) for row in data.to_pylist()],
                     data.schema.names,
@@ -216,14 +224,12 @@ where schema_name(tab.schema_id) = '%s' and tab.name = '%s'""" % (self.schema, s
                     cursor=cursor
                 )
             else:
-                stmt = self.prepare_insert_statement(data.schema.names)
-
                 for batch in data:
                     self.insert_pylist(
                         [tuple(row.values()) for row in batch.to_pylist()],
-                        data.schema.names,
+                        batch.schema.names,
                         fast_executemany=fast_executemany,
-                        stmt=stmt,
+                        stmt=self.prepare_insert_statement(batch.schema.names),
                         commit=commit,
                         cursor=cursor
                     )
@@ -309,7 +315,7 @@ where schema_name(tab.schema_id) = '%s' and tab.name = '%s'""" % (self.schema, s
                 )
         else:
             if cast:
-                data = cast_arrow(data, self.schema_arrow, safe, fill_empty=True)
+                data = cast_arrow(data, self.schema_arrow, safe, fill_empty=True, drop=False)
 
             if isinstance(data, (RecordBatch, Table)):
                 tmp_file = os.path.join(base_dir, os.urandom(8).hex()) + ".csv"

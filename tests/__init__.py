@@ -37,7 +37,7 @@ class MSSQLTestCase(unittest.TestCase):
     tinyint tinyint,
     bigint bigint,
     bit bit,
-    decimal decimal,
+    decimal decimal(15,5),
     float float,
     real real,
     money money,

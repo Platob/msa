@@ -6,7 +6,7 @@ __all__ = [
     "LARGE_STRING", "STRING"
 ]
 
-from typing import Union, Iterable
+from typing import Union, Iterable, Generator
 
 import pyarrow
 import pyarrow as pa
@@ -43,8 +43,25 @@ LARGE_BINARY = pa.large_binary()
 NULL = pa.null()
 
 
+def get_field(schema: Schema, name: str) -> Field:
+    try:
+        idx = schema.names.index(name)
+        return schema.field(idx)
+    except ValueError:
+        # b.schema.names.index("name")
+        # ValueError: 'name' is not in list
+        for batch_field in schema:
+            if batch_field.name.lower() == name.lower():
+                return batch_field
+        raise KeyError("Cannot find Field<'%s'> in schema %s" % (
+            name, schema.names
+        ))
+
+
 def get_batch_column_or_empty(
-    batch: Union[RecordBatch, Table], field: Field, fill_empty: bool = True
+    batch: Union[RecordBatch, Table], field: Field,
+    fill_empty: bool = True,
+    drop: bool = False
 ) -> (Field, Array):
     try:
         idx = batch.schema.names.index(field.name)
@@ -65,8 +82,12 @@ def get_batch_column_or_empty(
             return data
         elif field.nullable and fill_empty:
             return field, pa.array([None] * batch.num_rows, field.type)
+        elif drop:
+            return None
         else:
-            raise KeyError("Cannot find Field<'%s', %s> in batch columns %s, or fill with nulls" % (field.name, field.type, batch.schema.names))
+            raise KeyError("Cannot find Field<'%s', %s> in batch columns %s, or fill with nulls" % (
+                field.name, field.type, batch.schema.names
+            ))
 
 
 def string_to_timestamp(arr: Array, dtype: TimestampType, safe: bool = DEFAULT_SAFE_MODE, **kwargs):
@@ -160,24 +181,30 @@ def cast_array(array: Array, dtype: DataType, safe: bool = DEFAULT_SAFE_MODE):
 
 def cast_batch(
     batch: Union[RecordBatch, Table], schema: Schema, safe: bool = DEFAULT_SAFE_MODE,
-    fill_empty: bool = True
+    fill_empty: bool = True,
+    drop: bool = False
 ) -> Union[RecordBatch, Table]:
     # check names
     if batch.schema.names != schema.names:
-        columns: list[(Field, Array)] = [get_batch_column_or_empty(batch, field, fill_empty) for field in schema]
+        columns: list[(Field, Array)] = [get_batch_column_or_empty(batch, field, fill_empty, drop) for field in schema]
+
+        if drop:
+            columns = [c for c in columns if c is not None]
+            schema = schema_builder([_[0] for _ in columns], schema.metadata)
 
         return cast_batch(
             batch.__class__.from_arrays(
                 [_[1] for _ in columns],
-                schema=schema_builder([_[0] for _ in columns], metadata=schema.metadata)
+                schema=schema_builder([_[0] for _ in columns])
             ),
             schema=schema,
             safe=safe,
-            fill_empty=fill_empty
+            fill_empty=fill_empty,
+            drop=drop
         )
 
     if batch.schema == schema:
-        return batch
+        return batch.replace_schema_metadata(schema.metadata)
     else:
         # check data types and cast
         return batch.__class__.from_arrays(
@@ -197,11 +224,15 @@ def cast_arrow(
     ],
     schema: Schema,
     safe: bool = DEFAULT_SAFE_MODE,
-    fill_empty: bool = True
-) -> Union[RecordBatch, RecordBatchReader]:
+    fill_empty: bool = True,
+    drop: bool = False
+) -> Union[RecordBatch, RecordBatchReader, Generator[RecordBatch, None, None]]:
     if isinstance(data, RecordBatch):
-        return cast_batch(data, schema, safe, fill_empty)
+        return cast_batch(data, schema, safe, fill_empty, drop)
     elif isinstance(data, Table):
-        return RecordBatchReader.from_batches(schema, cast_batch(data, schema, safe, fill_empty).to_batches())
+        data = cast_batch(data, schema, safe, fill_empty, drop)
+        return RecordBatchReader.from_batches(data.schema, data.to_batches())
+    elif drop:
+        return (cast_batch(_, schema, safe, fill_empty, drop) for _ in data)
     else:
-        return RecordBatchReader.from_batches(schema, (cast_batch(_, schema, safe, fill_empty) for _ in data))
+        return RecordBatchReader.from_batches(schema, (cast_batch(_, schema, safe, fill_empty, False) for _ in data))
