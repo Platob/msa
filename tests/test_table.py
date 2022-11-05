@@ -45,6 +45,18 @@ class TableTests(MSSQLTestCase):
             self.table.prepare_insert_statement(["a"])
         )
 
+    def test_repr(self):
+        self.assertEqual(
+            "SQLTable('master', 'dbo', 'PYMSA_UNITTEST')",
+            repr(self.table)
+        )
+
+    def test_str(self):
+        self.assertEqual(
+            "[master].[dbo].[PYMSA_UNITTEST]",
+            str(self.table)
+        )
+
     def test_get_field(self):
         self.assertEqual(
             self.table.field("string"),

@@ -29,6 +29,16 @@ class SQLTable:
         self.name = name
         self.type = type
 
+    def __repr__(self):
+        return "SQLTable('%s', '%s', '%s')" % (
+            self.catalog, self.schema, self.name
+        )
+
+    def __str__(self):
+        return "[%s].[%s].[%s]" % (
+            self.catalog, self.schema, self.name
+        )
+
     def __getitem__(self, item):
         return self.field(item)
 
