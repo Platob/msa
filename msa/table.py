@@ -234,6 +234,7 @@ where schema_name(tab.schema_id) = '%s' and tab.name = '%s'""" % (self.schema, s
         commit: bool = True,
         cursor: Optional[Cursor] = None,
         file_format: str = "CSV",
+        field_terminator: str = ",",
         row_terminator: str = "\n",
         field_quote: str = '"',
         datafile_type: str = 'char',
@@ -248,6 +249,7 @@ where schema_name(tab.schema_id) = '%s' and tab.name = '%s'""" % (self.schema, s
         :param commit:
         :param cursor:
         :param file_format:
+        :param field_terminator: separator, default = ','
         :param row_terminator:
         :param field_quote:
         :param datafile_type:
@@ -260,6 +262,7 @@ where schema_name(tab.schema_id) = '%s' and tab.name = '%s'""" % (self.schema, s
             with self.connection.cursor() as cursor:
                 return self.bulk_insert_file(
                     file, commit, cursor, file_format,
+                    field_terminator=field_terminator,
                     row_terminator=row_terminator,
                     field_quote=field_quote,
                     datafile_type=datafile_type,
@@ -319,6 +322,7 @@ where schema_name(tab.schema_id) = '%s' and tab.name = '%s'""" % (self.schema, s
                         commit=commit,
                         cursor=cursor,
                         file_format="CSV",
+                        field_terminator=",",
                         row_terminator="\n",
                         field_quote='"',
                         datafile_type="char",

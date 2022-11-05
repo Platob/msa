@@ -214,10 +214,12 @@ class TableTests(MSSQLTestCase):
     def test_bulk_insert_arrow_binary(self):
         data = pyarrow.RecordBatch.from_arrays([
             pyarrow.array(['test', 'test']),
-            pyarrow.array([b"test", None])
+            pyarrow.array([b"test", None]),
+            pyarrow.array([b"image", None])
         ], schema=pyarrow.schema([
             pyarrow.field("string", pyarrow.string(), nullable=False),
-            pyarrow.field("binary", pyarrow.binary(), nullable=True)
+            pyarrow.field("binary", pyarrow.binary(), nullable=True),
+            pyarrow.field("image", pyarrow.binary(), nullable=True)
         ]))
 
         self.table.truncate()
@@ -229,14 +231,14 @@ class TableTests(MSSQLTestCase):
         result = [
             list(_)
             for _ in self.server.cursor().execute(
-                f"select string, binary from {self.PYMSA_UNITTEST}"
+                f"select string, binary, image from {self.PYMSA_UNITTEST}"
             ).fetchall()
         ]
 
         self.assertEqual(
             [
-                ['test', b"test"],
-                ['test', None]
+                ['test', b"test", b"image"],
+                ['test', None, None]
             ],
             result
         )
