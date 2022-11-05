@@ -12,14 +12,18 @@ from msa.config import DEFAULT_BATCH_ROW_SIZE, DEFAULT_SAFE_MODE
 class Cursor(ABC):
 
     def __init__(self, connection: "Connection"):
-        self.connection = connection
         self.closed = False
+
+        self.connection = connection
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+    def __bool__(self):
+        return not self.closed
 
     @property
     def server(self) -> "MSSQL":

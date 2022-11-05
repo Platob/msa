@@ -70,6 +70,25 @@ class ArrowUtilsTests(MSSQLTestCase):
 
         self.assertEqual(expected, cast_batch(raw, expected.schema))
 
+    def test_cast_record_batch_not_fill_empty_columns(self):
+        raw = RecordBatch.from_pydict({
+            "0": ["0"], "1": ["1"], "2": ["2"]
+        })
+        expected = RecordBatch.from_pydict({
+            "2": ["2"], "1": ["1"], "3": [None]
+        })
+
+        error = "No error raised"
+        try:
+            self.assertEqual(expected, cast_batch(raw, expected.schema, fill_empty=False))
+        except KeyError as e:
+            error = e.args[0]
+
+        self.assertEqual(
+            "Cannot find Field<'3', null> in batch columns ['0', '1', '2'], or fill with nulls",
+            error
+        )
+
     def test_cast_table_fill_empty_columns(self):
         raw = Table.from_pydict({
             "0": ["0"], "1": ["1"], "2": ["2"]

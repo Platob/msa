@@ -1,13 +1,48 @@
 __all__ = ["SQLTable"]
 
+import os
+import tempfile
+from pathlib import Path
 from typing import Optional, Any, Union, Iterable
 
-from pyarrow import Schema, schema, Field, RecordBatch, Table, RecordBatchReader
+from pyarrow import Schema, schema, Field, RecordBatch, Table, RecordBatchReader, Decimal128Type, Decimal256Type, field, \
+    Array, ChunkedArray, array
+import pyarrow.csv as pcsv
 
 from .config import DEFAULT_SAFE_MODE
 from .cursor import Cursor
 from .utils import mssql_column_to_pyarrow_field
-from .utils.arrow import cast_arrow
+from .utils.arrow import cast_arrow, FLOAT64, LARGE_BINARY, BINARY, LARGE_STRING, STRING
+
+
+def binary_to_hex(scalar) -> Optional[bytes]:
+    pyscalar: bytes = scalar.as_py()
+    return pyscalar if pyscalar is None else pyscalar.hex()
+
+
+CSV_DTYPES = {
+    Decimal128Type: lambda arr: arr.cast(FLOAT64),
+    Decimal256Type: lambda arr: arr.cast(FLOAT64),
+    BINARY: lambda arr: array([binary_to_hex(_) for _ in arr], STRING),
+    LARGE_BINARY: lambda arr: array([binary_to_hex(_) for _ in arr], LARGE_STRING)
+}
+
+
+def prepare_bulk_csv_array(arr: Union[Array, ChunkedArray]):
+    if arr.type in CSV_DTYPES:
+        return CSV_DTYPES[arr.type](arr)
+    elif arr.type.__class__ in CSV_DTYPES:
+        return CSV_DTYPES[arr.type.__class__](arr)
+    return arr
+
+
+def prepare_bulk_csv_batch(data: Union[RecordBatch, Table]) -> Union[RecordBatch, Table]:
+    arrays = [prepare_bulk_csv_array(arr) for arr in data]
+
+    return data.__class__.from_arrays(arrays, schema=schema([
+        field(data.schema[i].name, arrays[i].type, data.schema[i].nullable)
+        for i in range(len(data.schema))
+    ]))
 
 
 class SQLTable:
@@ -35,6 +70,10 @@ class SQLTable:
         )
 
     def __str__(self):
+        return self.full_name
+
+    @property
+    def full_name(self):
         return "[%s].[%s].[%s]" % (
             self.catalog, self.schema, self.name
         )
@@ -81,28 +120,21 @@ where schema_name(tab.schema_id) = '%s' and tab.name = '%s'""" % (self.schema, s
 
     def truncate(self):
         with self.connection.cursor() as c:
-            c.execute(f"TRUNCATE TABLE [%s].[%s].[%s]" % (
-                self.catalog, self.schema, self.name
-            ))
+            c.execute(f"TRUNCATE TABLE %s" % self.full_name)
             c.commit()
 
     def drop(self):
         with self.connection.cursor() as c:
-            c.execute(f"DROP TABLE [%s].[%s].[%s]" % (
-                self.catalog, self.schema, self.name
-            ))
+            c.execute(f"DROP TABLE %s" % self.full_name)
             c.commit()
 
     def count(self) -> int:
         with self.connection.cursor() as c:
-            return c.execute(f"select count(*) from [%s].[%s].[%s]" % (
-                self.catalog, self.schema, self.name
-            )).fetchall()[0][0]
+            return c.execute(f"select count(*) from %s" % self.full_name).fetchall()[0][0]
 
     def prepare_insert_statement(self, columns):
-        return "INSERT INTO [%s].[%s].[%s] ([%s]) VALUES (%s)" % (
-            self.catalog, self.schema, self.name, "],[".join(columns),
-            ",".join(("?" for _ in range(len(columns))))
+        return "INSERT INTO %s ([%s]) VALUES (%s)" % (
+            self.full_name, "],[".join(columns), ",".join(("?" for _ in range(len(columns))))
         )
 
     def insert_pylist(
@@ -115,17 +147,7 @@ where schema_name(tab.schema_id) = '%s' and tab.name = '%s'""" % (self.schema, s
         cursor: Optional[Cursor] = None
     ):
         if rows:
-            if cursor:
-                try:
-                    cursor.fast_executemany = fast_executemany
-                except AttributeError:
-                    pass
-
-                cursor.executemany(stmt if stmt else self.prepare_insert_statement(columns), rows)
-
-                if commit:
-                    cursor.commit()
-            else:
+            if cursor is None:
                 with self.connection.cursor() as c:
                     return self.insert_pylist(
                         rows,
@@ -135,6 +157,16 @@ where schema_name(tab.schema_id) = '%s' and tab.name = '%s'""" % (self.schema, s
                         commit=commit,
                         cursor=c
                     )
+            else:
+                try:
+                    cursor.fast_executemany = fast_executemany
+                except AttributeError:
+                    pass
+
+                cursor.executemany(stmt if stmt else self.prepare_insert_statement(columns), rows)
+
+                if commit:
+                    cursor.commit()
 
     def insert_arrow(
         self,
@@ -147,31 +179,153 @@ where schema_name(tab.schema_id) = '%s' and tab.name = '%s'""" % (self.schema, s
         fast_executemany: bool = True,
         stmt: str = "",
         commit: bool = True,
+        bulk: bool = False,
         cursor: Optional[Cursor] = None
     ):
+        if bulk:
+            return self.bulk_insert_arrow(
+                data, None, cast, safe
+            )
         if cast:
-            data = cast_arrow(data, self.schema_arrow, safe)
+            data = cast_arrow(data, schema([
+                self.field(name) for name in data.schema.names
+            ]), safe, fill_empty=False)
         elif isinstance(data, Table):
             data = RecordBatchReader.from_batches(data.schema, data.to_batches())
 
-        if isinstance(data, RecordBatch):
-            return self.insert_pylist(
-                [tuple(row.values()) for row in data.to_pylist()],
-                data.schema.names,
-                fast_executemany=fast_executemany,
-                stmt=stmt,
-                commit=commit,
-                cursor=cursor
-            )
+        if cursor is None:
+            with self.connection.cursor() as cursor:
+                return self.insert_arrow(
+                    data,
+                    cast=cast,
+                    safe=safe,
+                    fast_executemany=fast_executemany,
+                    stmt=stmt,
+                    commit=commit,
+                    bulk=bulk,
+                    cursor=cursor
+                )
         else:
-            stmt = self.prepare_insert_statement(data.schema.names)
-
-            for batch in data:
-                self.insert_pylist(
-                    [tuple(row.values()) for row in batch.to_pylist()],
+            if isinstance(data, RecordBatch):
+                return self.insert_pylist(
+                    [tuple(row.values()) for row in data.to_pylist()],
                     data.schema.names,
                     fast_executemany=fast_executemany,
                     stmt=stmt,
                     commit=commit,
                     cursor=cursor
                 )
+            else:
+                stmt = self.prepare_insert_statement(data.schema.names)
+
+                for batch in data:
+                    self.insert_pylist(
+                        [tuple(row.values()) for row in batch.to_pylist()],
+                        data.schema.names,
+                        fast_executemany=fast_executemany,
+                        stmt=stmt,
+                        commit=commit,
+                        cursor=cursor
+                    )
+
+    def bulk_insert_file(
+        self,
+        file: Union[str, Path],
+        commit: bool = True,
+        cursor: Optional[Cursor] = None,
+        file_format: str = "CSV",
+        row_terminator: str = "\n",
+        field_quote: str = '"',
+        datafile_type: str = 'widenative',
+        first_row: int = 2,
+        code_page: str = '65001',
+        other_options: str = ""
+    ):
+        """
+        See https://learn.microsoft.com/en-us/sql/t-sql/statements/bulk-insert-transact-sql?view=sql-server-2017
+
+        :param file:
+        :param commit:
+        :param cursor:
+        :param file_format:
+        :param row_terminator:
+        :param field_quote:
+        :param datafile_type:
+        :param first_row:
+        :param code_page: encoding, default '65001' = utf-8
+        :param other_options: string to append: WITH (FORMAT = 'file_format', %s) % other_options
+        :return: None
+        """
+        if cursor is None:
+            with self.connection.cursor() as cursor:
+                return self.bulk_insert_file(
+                    file, commit, cursor, file_format
+                )
+        else:
+            options = "FORMAT = '%s', DATAFILETYPE = '%s',  FIRSTROW = %s, FIELDQUOTE = '%s', ROWTERMINATOR = '%s', " \
+                      "CODEPAGE = '%s'" % (
+                          file_format, datafile_type, first_row, field_quote, row_terminator, code_page
+                      )
+            if other_options:
+                options += ", " + other_options
+
+            cursor.execute("""BULK INSERT %s FROM '%s' WITH (%s)""" % (self.full_name, file, options))
+            if commit:
+                cursor.commit()
+
+    def bulk_insert_arrow(
+        self,
+        data: Union[
+            RecordBatch, Table,
+            Iterable[Union[RecordBatch, Table]], RecordBatchReader
+        ],
+        base_dir: Optional[str] = None,
+        cast: bool = True,
+        safe: bool = DEFAULT_SAFE_MODE,
+        commit: bool = True,
+        cursor: Optional[Cursor] = None,
+        **bulk_options: dict[str, str]
+    ):
+        if base_dir is None:
+            with tempfile.TemporaryDirectory() as base_dir:
+                return self.bulk_insert_arrow(
+                    data, base_dir=base_dir, cast=cast, safe=safe, commit=commit, cursor=cursor,
+                    **bulk_options
+                )
+        elif cursor is None:
+            with self.connection.cursor() as cursor:
+                return self.bulk_insert_arrow(
+                    data, base_dir=base_dir, cast=cast, safe=safe, commit=commit, cursor=cursor,
+                    **bulk_options
+                )
+        else:
+            if cast:
+                data = cast_arrow(data, self.schema_arrow, safe, fill_empty=True)
+
+            if isinstance(data, (RecordBatch, Table)):
+                tmp_file = os.path.join(base_dir, os.urandom(8).hex()) + ".csv"
+
+                # write in tmp file
+                try:
+                    pcsv.write_csv(prepare_bulk_csv_batch(data), tmp_file)
+                    self.bulk_insert_file(
+                        file=tmp_file,
+                        commit=commit,
+                        cursor=cursor,
+                        file_format="CSV",
+                        row_terminator="\n",
+                        field_quote='"',
+                        datafile_type="char",
+                        first_row=2
+                    )
+                except BaseException as e:
+                    raise e
+                finally:
+                    os.remove(tmp_file)
+            else:
+                # iterate on record batches
+                for batch in data:
+                    self.bulk_insert_arrow(
+                        batch, base_dir=base_dir, cast=cast, safe=safe, commit=commit, cursor=cursor,
+                        **bulk_options
+                    )

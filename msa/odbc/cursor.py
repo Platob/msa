@@ -32,7 +32,7 @@ class PyODBCCursor(AbstractCursor):
     def close(self) -> None:
         if not self.closed:
             self.raw.close()
-        super(PyODBCCursor, self).close()
+            super(PyODBCCursor, self).close()
 
     def execute(self, sql: str, *args, **kwargs) -> "PyODBCCursor":
         self.raw.execute(sql, *args, **kwargs)

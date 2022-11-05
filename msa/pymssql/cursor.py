@@ -30,7 +30,7 @@ class PyMSSQLCursor(AbstractCursor):
     def close(self) -> None:
         if not self.closed:
             self.raw.close()
-        super(PyMSSQLCursor, self).close()
+            super(PyMSSQLCursor, self).close()
 
     def execute(self, sql: str, *args, **kwargs) -> "PyMSSQLCursor":
         self.raw.execute(sql, *args, **kwargs)

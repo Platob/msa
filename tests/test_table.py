@@ -56,6 +56,10 @@ class TableTests(MSSQLTestCase):
             "[master].[dbo].[PYMSA_UNITTEST]",
             str(self.table)
         )
+        self.assertEqual(
+            self.table.full_name,
+            str(self.table)
+        )
 
     def test_get_field(self):
         self.assertEqual(
@@ -148,6 +152,83 @@ class TableTests(MSSQLTestCase):
                 [
                     None, 'test', None, None, None, None, None, None
                 ]
+            ],
+            result
+        )
+
+    def test_bulk_insert_arrow(self):
+        data = pyarrow.RecordBatch.from_arrays([
+            pyarrow.array([datetime.date(2022, 10, 20), None]),
+            pyarrow.array(['test', 'test']),
+            pyarrow.array([None, None]),
+            pyarrow.array([None, None]),
+            pyarrow.array([datetime.datetime(2017, 3, 16, 10, 35, 18, 123000), None])
+            .cast(pyarrow.timestamp("ms"), False),
+            pyarrow.array([numpy.datetime64('2017-03-16T10:35:18.123456800'), None]),
+            pyarrow.array([1, None]),
+        ], schema=pyarrow.schema([
+            pyarrow.field("date", pyarrow.date32(), nullable=True),
+            pyarrow.field("string", pyarrow.string(), nullable=False),
+            pyarrow.field("float", pyarrow.float64(), nullable=True),
+            pyarrow.field("real", pyarrow.float32(), nullable=True),
+            pyarrow.field("datetime", pyarrow.timestamp("ms"), nullable=True),
+            pyarrow.field("datetime2", pyarrow.timestamp("ns"), nullable=True),
+            pyarrow.field("int", pyarrow.int32(), nullable=True)
+        ]))
+
+        self.table.truncate()
+        self.table.bulk_insert_arrow(
+            data,
+            safe=True, commit=True
+        )
+
+        result = [
+            list(_)
+            for _ in self.server.cursor().execute(
+                f"select int, string, date, float, real, datetime, datetime2 from {self.PYMSA_UNITTEST}"
+            ).fetchall()
+        ]
+
+        self.assertEqual(
+            [
+                [
+                    1, 'test', datetime.date(2022, 10, 20), None, None,
+                    datetime.datetime(2017, 3, 16, 10, 35, 18, 123000),
+                    numpy.datetime64('2017-03-16T10:35:18.123456800')
+                ],
+                [
+                    None, 'test', None, None, None, None, None
+                ]
+            ],
+            result
+        )
+
+    def test_bulk_insert_arrow_binary(self):
+        data = pyarrow.RecordBatch.from_arrays([
+            pyarrow.array(['test', 'test']),
+            pyarrow.array([b"test", None])
+        ], schema=pyarrow.schema([
+            pyarrow.field("string", pyarrow.string(), nullable=False),
+            pyarrow.field("binary", pyarrow.binary(), nullable=True)
+        ]))
+
+        self.table.truncate()
+        self.table.bulk_insert_arrow(
+            data,
+            cast=True, safe=True, commit=True
+        )
+
+        result = [
+            list(_)
+            for _ in self.server.cursor().execute(
+                f"select string, binary from {self.PYMSA_UNITTEST}"
+            ).fetchall()
+        ]
+
+        self.assertEqual(
+            [
+                ['test', b"test"],
+                ['test', None]
             ],
             result
         )

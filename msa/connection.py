@@ -19,6 +19,9 @@ class Connection(ABC):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
+    def __bool__(self):
+        return not self.closed
+
     def close(self) -> None:
         self.closed = True
 
