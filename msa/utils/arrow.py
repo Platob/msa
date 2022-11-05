@@ -258,7 +258,7 @@ def cast_arrow(
             inter = intersect_schemas(schema, data.schema.names)
             return RecordBatchReader.from_batches(
                 inter,
-                (cast_batch(_, inter, safe, fill_empty, drop) for _ in data)
+                (cast_batch(_, inter, safe, fill_empty, False) for _ in data)
             )
         return (cast_batch(_, schema, safe, fill_empty, drop) for _ in data)
     else:
