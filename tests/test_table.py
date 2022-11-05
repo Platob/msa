@@ -3,7 +3,7 @@ import datetime
 import numpy
 import pyarrow
 import pyarrow as pa
-from pyarrow import schema
+from pyarrow import schema, RecordBatchReader
 
 from tests import MSSQLTestCase
 
@@ -188,6 +188,62 @@ class TableTests(MSSQLTestCase):
 
         self.table.truncate()
         self.table.insert_arrow([data, data], cast=True, safe=True, commit=True)
+
+        result = [
+            list(_)
+            for _ in self.server.cursor().execute(
+                f"select int, string, date, float, real, datetime, datetime2, binary from {self.PYMSA_UNITTEST}"
+            ).fetchall()
+        ]
+
+        self.assertEqual(
+            [
+                [
+                    1, 'test', datetime.date(2022, 10, 20), None, None,
+                    datetime.datetime(2017, 3, 16, 10, 35, 18, 123000),
+                    numpy.datetime64('2017-03-16T10:35:18.123456000'), b'test'
+                ],
+                [
+                    None, 'test', None, None, None, None, None, None
+                ],
+                [
+                    1, 'test', datetime.date(2022, 10, 20), None, None,
+                    datetime.datetime(2017, 3, 16, 10, 35, 18, 123000),
+                    numpy.datetime64('2017-03-16T10:35:18.123456000'), b'test'
+                ],
+                [
+                    None, 'test', None, None, None, None, None, None
+                ]
+            ],
+            result
+        )
+
+    def test_insert_pyarrow_record_batches(self):
+        data = pyarrow.RecordBatch.from_arrays([
+            pyarrow.array([1, None]),
+            pyarrow.array(['test', 'test']),
+            pyarrow.array([datetime.date(2022, 10, 20), None]),
+            pyarrow.array([None, None]),
+            pyarrow.array([None, None]),
+            pyarrow.array([datetime.datetime(2017, 3, 16, 10, 35, 18, 123000), None])
+            .cast(pyarrow.timestamp("ms"), False),
+            pyarrow.array([numpy.datetime64('2017-03-16T10:35:18.123456800'), None]),
+            pyarrow.array([b"test", None])
+        ], schema=pyarrow.schema([
+            pyarrow.field("int", pyarrow.int32(), nullable=True),
+            pyarrow.field("string", pyarrow.string(), nullable=False),
+            pyarrow.field("date", pyarrow.date32(), nullable=True),
+            pyarrow.field("float", pyarrow.float64(), nullable=True),
+            pyarrow.field("real", pyarrow.float32(), nullable=True),
+            pyarrow.field("datetime", pyarrow.timestamp("ms"), nullable=True),
+            pyarrow.field("datetime2", pyarrow.timestamp("ns"), nullable=True),
+            pyarrow.field("binary", pyarrow.binary(), nullable=True)
+        ]))
+
+        self.table.truncate()
+        self.table.insert_arrow(
+            RecordBatchReader.from_batches(data.schema, [data, data]), cast=False, safe=True, commit=True
+        )
 
         result = [
             list(_)
