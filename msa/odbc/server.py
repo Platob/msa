@@ -15,6 +15,17 @@ class PyODBC(MSSQL):
         super(PyODBC, self).__init__(package="pyodbc")
         self.uri = uri
 
+    @property
+    def uri(self) -> str:
+        return self.__uri
+
+    @uri.setter
+    def uri(self, uri: str):
+        self.__uri = uri
+        self.uri_map = {
+            t[0]: t[1] for t in (_.split("=") for _ in uri.split(";") if _)
+        }
+
     def connect(self, **kwargs) -> PyODBCConnection:
         return PyODBCConnection(
             server=self,

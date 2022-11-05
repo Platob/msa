@@ -18,8 +18,10 @@ class PyMSSQLConnection(Abstract):
         self.raw.close()
 
     def commit(self) -> None:
-        super(PyMSSQLConnection, self).commit()
         self.raw.commit()
+
+    def rollback(self) -> None:
+        self.raw.rollback()
 
     def cursor(self, *args, **kwargs) -> PyMSSQLCursor:
         return PyMSSQLCursor(

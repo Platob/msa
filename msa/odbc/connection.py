@@ -1,7 +1,7 @@
 __all__ = ["PyODBCConnection"]
 
 import struct
-from datetime import datetime, timedelta, timezone, date
+from datetime import datetime, timedelta, timezone
 
 import numpy
 import pymssql
@@ -53,8 +53,10 @@ class PyODBCConnection(Abstract):
         super(PyODBCConnection, self).close()
 
     def commit(self) -> None:
-        super(PyODBCConnection, self).commit()
         self.raw.commit()
+
+    def rollback(self) -> None:
+        self.raw.rollback()
 
     def cursor(self, *args, **kwargs) -> PyODBCCursor:
         return PyODBCCursor(

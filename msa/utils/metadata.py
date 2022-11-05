@@ -1,5 +1,6 @@
 __all__ = [
-    "pyodbc_description_to_pyarrow_field"
+    "pyodbc_description_to_pyarrow_field",
+    "mssql_column_to_pyarrow_field"
 ]
 
 import datetime
@@ -69,9 +70,7 @@ def fine_decimal(precision: int, scale: int):
 
 def pyodbc_string(precision=None, scale=None, *args, **kwargs):
     if precision:
-        if precision > 42000:
-            return LARGE_STRING
-        elif scale:
+        if scale:
             if precision == 34 and scale == 7:
                 # DATETIMEOFFSET
                 return UTCTIMESTAMP
@@ -81,14 +80,16 @@ def pyodbc_string(precision=None, scale=None, *args, **kwargs):
             elif precision == 23 and scale == 3:
                 # DATETIME
                 return TIMESTAMPMS
-    return STRING
+        if precision <= 42000:
+            return STRING
+    return LARGE_STRING
 
 
 DATATYPES = {
     bytes: lambda precision=None, *args, **kwargs:
-        LARGE_BINARY if precision is not None and int(precision) > 42000 else BINARY,
+        BINARY if precision is not None and int(precision) <= 42000 else LARGE_BINARY,
     bytearray: lambda precision=None, *args, **kwargs:
-        LARGE_BINARY if precision is not None and int(precision) > 42000 else BINARY,
+        BINARY if precision is not None and int(precision) <= 42000 else LARGE_BINARY,
     str: pyodbc_string,
     bool: lambda *args, **kwargs: BOOL,
     float: lambda precision, *args, **kwargs: fine_float(precision),
@@ -96,7 +97,28 @@ DATATYPES = {
     decimal.Decimal: lambda precision, scale, *args, **kwargs: fine_decimal(precision, scale),
     datetime.date: lambda *args, **kwargs: DATE,
     datetime.time: lambda scale, *args, **kwargs: TIMETYPES[int_to_timeunit(scale)],
-    datetime.datetime: lambda scale=None, *args, **kwargs: pa.timestamp(int_to_timeunit(scale)),
+    datetime.datetime: lambda scale=None, *args, **kwargs: pa.timestamp(int_to_timeunit(scale))
+}
+
+
+STRING_DATATYPES = {
+    "int": DATATYPES[int],
+    "bigint": DATATYPES[int],
+    "bit": DATATYPES[bool],
+    "decimal": DATATYPES[decimal.Decimal],
+    "float": DATATYPES[float],
+    "real": DATATYPES[float],
+    "date": DATATYPES[datetime.date],
+    "datetime": DATATYPES[datetime.datetime],
+    "datetime2": DATATYPES[datetime.datetime],
+    "smalldatetime": DATATYPES[datetime.datetime],
+    "time": DATATYPES[datetime.time],
+    "varchar": DATATYPES[str],
+    "nvarchar": DATATYPES[str],
+    "text": DATATYPES[str],
+    "varbinary": DATATYPES[bytes],
+    "uniqueidentifier": lambda **kwargs: STRING,
+    "datetimeoffset": lambda scale=None, *args, **kwargs: pa.timestamp(int_to_timeunit(scale), "UTC")
 }
 
 
@@ -114,4 +136,36 @@ def pyodbc_description_to_pyarrow_field(description: tuple, metadata: Optional[d
         DATATYPES[type_code](precision=precision, scale=scale),
         nullable=null_ok,
         metadata=metadata
+    )
+
+
+def mssql_column_to_pyarrow_field(row):
+    """
+    from SQL query
+    select col.name as name,
+        t.name as dtype,
+        t.max_length as max_length,
+        t.precision as precision,
+        t.scale as scale,
+        t.is_nullable as nullable,
+        t.collation_name as collation
+    from sys.tables as tab
+        inner join sys.columns as col
+            on tab.object_id = col.object_id
+        left join sys.types as t
+        on col.user_type_id = t.user_type_id
+    where schema_name(tab.schema_id) = 'schema' and tab.name = 'name'
+    :param row: (name, dtype, max_length, precision, scale, nullable, collation)
+    :rtype: Field
+    """
+    name, dtype, max_length, precision, scale, nullable, collation = row
+    return field(
+        name,
+        STRING_DATATYPES[dtype](precision=precision, scale=scale),
+        nullable,
+        {
+            "precision": str(precision),
+            "scale": str(scale),
+            "collation": collation if collation else ""
+        }
     )

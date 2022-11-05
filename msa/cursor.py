@@ -1,10 +1,10 @@
 __all__ = ["Cursor"]
 
 from abc import ABC, abstractmethod
-from typing import Optional, Generator
+from typing import Optional, Generator, Any
 
 import pyarrow
-from pyarrow import Schema, RecordBatch, Table
+from pyarrow import Schema, RecordBatch, Table, RecordBatchReader
 
 from msa.config import DEFAULT_BATCH_ROW_SIZE, DEFAULT_SAFE_MODE
 
@@ -36,8 +36,15 @@ class Cursor(ABC):
     def commit(self):
         self.connection.commit()
 
+    def rollback(self):
+        self.connection.rollback()
+
     @abstractmethod
     def execute(self, sql: str, *args, **kwargs) -> "Cursor":
+        raise NotImplemented
+
+    @abstractmethod
+    def executemany(self, sql: str, *args, **kwargs) -> "Cursor":
         raise NotImplemented
 
     # row oriented
@@ -46,10 +53,10 @@ class Cursor(ABC):
         raise NotImplemented
 
     @abstractmethod
-    def fetchmany(self, n: int = DEFAULT_BATCH_ROW_SIZE) -> Optional[list[tuple[object]]]:
+    def fetchmany(self, n: int = DEFAULT_BATCH_ROW_SIZE) -> Optional[list[tuple[Any]]]:
         raise NotImplemented
 
-    def fetchall(self, buffersize: int = DEFAULT_BATCH_ROW_SIZE) -> list[tuple[object]]:
+    def fetchall(self, buffersize: int = DEFAULT_BATCH_ROW_SIZE) -> list[tuple[Any]]:
         buf = []
         for rows in self.fetch_row_batches(buffersize):
             buf.extend(rows)
@@ -100,4 +107,10 @@ class Cursor(ABC):
         safe: bool = DEFAULT_SAFE_MODE
     ) -> Table:
         return Table.from_batches(self.fetch_arrow_batches(n, safe), schema=self.schema_arrow)
-    
+
+    def reader(
+        self,
+        n: int = DEFAULT_BATCH_ROW_SIZE,
+        safe: bool = DEFAULT_SAFE_MODE
+    ) -> RecordBatchReader:
+        return RecordBatchReader.from_batches(self.schema_arrow, self.fetch_arrow_batches(n, safe))

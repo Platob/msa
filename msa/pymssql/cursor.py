@@ -36,6 +36,10 @@ class PyMSSQLCursor(AbstractCursor):
         self.raw.execute(sql, *args, **kwargs)
         return self
 
+    def executemany(self, sql: str, *args, **kwargs) -> "PyMSSQLCursor":
+        self.raw.executemany(sql, *args, **kwargs)
+        return self
+
     def fetchone(self) -> Optional[tuple[object]]:
         return self.raw.fetchone()
 

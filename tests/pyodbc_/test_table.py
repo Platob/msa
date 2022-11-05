@@ -12,6 +12,7 @@ class PyODBCTableTests(MSSQLTestCase):
 
     def setUp(self):
         self.create_test_table(self.server)
+        self.table = self.server.connect().table(self.PYMSA_UNITTEST)
 
     def tearDown(self) -> None:
         with self.server.cursor() as c:

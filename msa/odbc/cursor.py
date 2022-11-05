@@ -38,6 +38,10 @@ class PyODBCCursor(AbstractCursor):
         self.raw.execute(sql, *args, **kwargs)
         return self
 
+    def executemany(self, sql: str, *args, **kwargs) -> "PyODBCCursor":
+        self.raw.executemany(sql, *args, **kwargs)
+        return self
+
     def fetchone(self) -> Optional[tuple[object]]:
         return self.raw.fetchone()
 
