@@ -46,7 +46,8 @@ with server.connect() as connection:
         data=[], # RecordBatch, RecordBatchReader or Iterable[RecordBatch]
         cast=True, # cast to table.schema_arrow
         safe=True, # safe cast
-        commit=True
+        commit=True,
+        bulk=False # bulk insert csv
     )
 ```
 
