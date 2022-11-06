@@ -6,6 +6,7 @@ __all__ = [
     "LARGE_STRING", "STRING"
 ]
 
+import datetime
 from typing import Union, Iterable, Generator, Optional
 
 import pyarrow
@@ -13,7 +14,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from pyarrow import RecordBatch, Schema, schema as schema_builder, Field, field as field_builder, Array, DataType, \
-    Decimal128Type, Decimal256Type, TimestampType, ArrowInvalid, Time64Type, Table, RecordBatchReader
+    Decimal128Type, Decimal256Type, TimestampType, ArrowInvalid, Time64Type, Table, RecordBatchReader, array
 
 from ..config import DEFAULT_SAFE_MODE
 
@@ -118,6 +119,8 @@ def string_to_timestamp(arr: Array, dtype: TimestampType, safe: bool = DEFAULT_S
 
 
 def string_to_date(arr: Array, safe: bool = DEFAULT_SAFE_MODE, **kwargs):
+    if safe:
+        return array([datetime.date.fromisoformat(_) for _ in arr], DATE, safe=safe)
     return string_to_timestamp(arr, TIMESTAMP, safe=safe).cast(DATE, safe)
 
 
