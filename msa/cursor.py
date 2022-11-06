@@ -3,8 +3,7 @@ __all__ = ["Cursor"]
 from abc import ABC, abstractmethod
 from typing import Optional, Generator, Any
 
-import pyarrow
-from pyarrow import Schema, RecordBatch, Table, RecordBatchReader
+from pyarrow import Schema, RecordBatch, Table, RecordBatchReader, array
 
 from msa.config import DEFAULT_BATCH_ROW_SIZE, DEFAULT_SAFE_MODE
 
@@ -89,7 +88,7 @@ class Cursor(ABC):
         for batch in self.fetch_row_batches(n):
             yield RecordBatch.from_arrays(
                 [
-                    pyarrow.array(
+                    array(
                         [row[i] for row in batch],
                         self.schema_arrow[i].type,
                         from_pandas=False,
