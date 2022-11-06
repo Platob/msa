@@ -1,4 +1,5 @@
 import datetime
+import decimal
 
 import numpy
 import pyarrow
@@ -14,6 +15,7 @@ class TableTests(MSSQLTestCase):
     def setUp(self) -> None:
         MSSQLTestCase.create_test_table(self.server)
         self.table = self.server.connect().table(MSSQLTestCase.PYMSA_UNITTEST)
+        print(self.table.schema_arrow)
 
     def tearDown(self) -> None:
         self.table.drop()
@@ -95,6 +97,16 @@ class TableTests(MSSQLTestCase):
             ]
         )
 
+    def test_insert_pylist_decimal(self):
+        self.table.insert_pylist([[1, decimal.Decimal("10.30000")]], ["string", "decimal"])
+        self.assertEqual(
+            [["1", decimal.Decimal("10.30000")]],
+            [
+                list(_)
+                for _ in self.server.cursor().execute(f"select string, decimal from {self.PYMSA_UNITTEST}").fetchall()
+            ]
+        )
+
     def test_insert_large_pylist(self):
         data = [
             ["1", None] for _ in range(1001)
@@ -128,7 +140,8 @@ class TableTests(MSSQLTestCase):
             pyarrow.array([datetime.datetime(2017, 3, 16, 10, 35, 18, 123000), None])
             .cast(pyarrow.timestamp("ms"), False),
             pyarrow.array([numpy.datetime64('2017-03-16T10:35:18.123456800'), None]),
-            pyarrow.array([b"test", None])
+            pyarrow.array([b"test", None]),
+            pyarrow.array([10.3, None])
         ], schema=pyarrow.schema([
             pyarrow.field("int", pyarrow.int32(), nullable=True),
             pyarrow.field("string", pyarrow.string(), nullable=False),
@@ -137,7 +150,8 @@ class TableTests(MSSQLTestCase):
             pyarrow.field("real", pyarrow.float32(), nullable=True),
             pyarrow.field("datetime", pyarrow.timestamp("ms"), nullable=True),
             pyarrow.field("datetime2", pyarrow.timestamp("ns"), nullable=True),
-            pyarrow.field("binary", pyarrow.binary(), nullable=True)
+            pyarrow.field("binary", pyarrow.binary(), nullable=True),
+            pyarrow.field("decimal", pyarrow.decimal128(15, 5), nullable=True)
         ]))
 
         self.table.truncate()
@@ -146,7 +160,7 @@ class TableTests(MSSQLTestCase):
         result = [
             list(_)
             for _ in self.server.cursor().execute(
-                f"select int, string, date, float, real, datetime, datetime2, binary from {self.PYMSA_UNITTEST}"
+                f"select int, string, date, float, real, datetime, datetime2, binary, decimal from {self.PYMSA_UNITTEST}"
             ).fetchall()
         ]
 
@@ -155,10 +169,11 @@ class TableTests(MSSQLTestCase):
                 [
                     1, 'test', datetime.date(2022, 10, 20), None, None,
                     datetime.datetime(2017, 3, 16, 10, 35, 18, 123000),
-                    numpy.datetime64('2017-03-16T10:35:18.123456800'), b'test'
+                    numpy.datetime64('2017-03-16T10:35:18.123456800'), b'test',
+                    decimal.Decimal('10.30000')
                 ],
                 [
-                    None, 'test', None, None, None, None, None, None
+                    None, 'test', None, None, None, None, None, None, None
                 ]
             ],
             result

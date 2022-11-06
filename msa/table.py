@@ -57,7 +57,7 @@ def prepare_bulk_csv_batch(data: Union[RecordBatch, Table]) -> Union[RecordBatch
 def prepare_insert_array(arr: Union[Array, ChunkedArray]):
     if arr.type in INSERT_BATCH:
         return INSERT_BATCH[arr.type](arr)
-    elif arr.type.__class__ in CSV_DTYPES:
+    elif arr.type.__class__ in INSERT_BATCH:
         return INSERT_BATCH[arr.type.__class__](arr)
     return arr
 
