@@ -15,7 +15,6 @@ class TableTests(MSSQLTestCase):
     def setUp(self) -> None:
         MSSQLTestCase.create_test_table(self.server)
         self.table = self.server.connect().table(MSSQLTestCase.PYMSA_UNITTEST)
-        print(self.table.schema_arrow)
 
     def tearDown(self) -> None:
         self.table.drop()
