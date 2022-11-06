@@ -120,7 +120,10 @@ def string_to_timestamp(arr: Array, dtype: TimestampType, safe: bool = DEFAULT_S
 
 def string_to_date(arr: Array, safe: bool = DEFAULT_SAFE_MODE, **kwargs):
     if safe:
-        return array([datetime.date.fromisoformat(_) for _ in arr], DATE, safe=safe)
+        return array(
+            [None if _ is None else datetime.date.fromisoformat(_) for _ in (_.as_py() for _ in arr)],
+            DATE, safe=safe
+        )
     return string_to_timestamp(arr, TIMESTAMP, safe=safe).cast(DATE, safe)
 
 
