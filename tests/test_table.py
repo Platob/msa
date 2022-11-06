@@ -49,8 +49,8 @@ class TableTests(MSSQLTestCase):
 
     def test_prepare_insert_statement(self):
         self.assertEqual(
-            "INSERT INTO [master].[dbo].[PYMSA_UNITTEST] ([a]) VALUES (?)",
-            self.table.prepare_insert_statement(["a"])
+            "INSERT INTO [master].[dbo].[PYMSA_UNITTEST] ([a],[AbC Column]) VALUES (?,?)",
+            self.table.prepare_insert_statement(["a", "AbC Column"])
         )
 
     def test_repr(self):
@@ -155,7 +155,7 @@ class TableTests(MSSQLTestCase):
                 [
                     1, 'test', datetime.date(2022, 10, 20), None, None,
                     datetime.datetime(2017, 3, 16, 10, 35, 18, 123000),
-                    numpy.datetime64('2017-03-16T10:35:18.123456000'), b'test'
+                    numpy.datetime64('2017-03-16T10:35:18.123456800'), b'test'
                 ],
                 [
                     None, 'test', None, None, None, None, None, None
@@ -201,7 +201,7 @@ class TableTests(MSSQLTestCase):
                 [
                     1, 'test', datetime.date(2022, 10, 20), None, None,
                     datetime.datetime(2017, 3, 16, 10, 35, 18, 123000),
-                    numpy.datetime64('2017-03-16T10:35:18.123456000'), b'test'
+                    numpy.datetime64('2017-03-16T10:35:18.123456800'), b'test'
                 ],
                 [
                     None, 'test', None, None, None, None, None, None
@@ -209,7 +209,7 @@ class TableTests(MSSQLTestCase):
                 [
                     1, 'test', datetime.date(2022, 10, 20), None, None,
                     datetime.datetime(2017, 3, 16, 10, 35, 18, 123000),
-                    numpy.datetime64('2017-03-16T10:35:18.123456000'), b'test'
+                    numpy.datetime64('2017-03-16T10:35:18.123456800'), b'test'
                 ],
                 [
                     None, 'test', None, None, None, None, None, None
@@ -257,7 +257,7 @@ class TableTests(MSSQLTestCase):
                 [
                     1, 'test', datetime.date(2022, 10, 20), None, None,
                     datetime.datetime(2017, 3, 16, 10, 35, 18, 123000),
-                    numpy.datetime64('2017-03-16T10:35:18.123456000'), b'test'
+                    numpy.datetime64('2017-03-16T10:35:18.123456800'), b'test'
                 ],
                 [
                     None, 'test', None, None, None, None, None, None
@@ -265,7 +265,7 @@ class TableTests(MSSQLTestCase):
                 [
                     1, 'test', datetime.date(2022, 10, 20), None, None,
                     datetime.datetime(2017, 3, 16, 10, 35, 18, 123000),
-                    numpy.datetime64('2017-03-16T10:35:18.123456000'), b'test'
+                    numpy.datetime64('2017-03-16T10:35:18.123456800'), b'test'
                 ],
                 [
                     None, 'test', None, None, None, None, None, None

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional, Any, Union, Iterable
 
 from pyarrow import Schema, schema, Field, RecordBatch, Table, RecordBatchReader, Decimal128Type, Decimal256Type, field, \
-    Array, ChunkedArray, array
+    Array, ChunkedArray, array, TimestampType, Time64Type, Time32Type, FixedSizeBinaryType
 import pyarrow.csv as pcsv
 
 from .config import DEFAULT_SAFE_MODE
@@ -20,11 +20,20 @@ def binary_to_hex(scalar) -> Optional[bytes]:
     return pyscalar if pyscalar is None else pyscalar.hex()
 
 
+INSERT_BATCH = {
+    TimestampType: lambda arr: arr.cast(STRING),
+    Time32Type: lambda arr: arr.cast(STRING),
+    Time64Type: lambda arr: arr.cast(STRING)
+}
+
+
 CSV_DTYPES = {
     Decimal128Type: lambda arr: arr.cast(FLOAT64),
     Decimal256Type: lambda arr: arr.cast(FLOAT64),
     BINARY: lambda arr: array([binary_to_hex(_) for _ in arr], STRING),
-    LARGE_BINARY: lambda arr: array([binary_to_hex(_) for _ in arr], LARGE_STRING)
+    FixedSizeBinaryType: lambda arr: array([binary_to_hex(_) for _ in arr], STRING),
+    LARGE_BINARY: lambda arr: array([binary_to_hex(_) for _ in arr], LARGE_STRING),
+    **INSERT_BATCH
 }
 
 
@@ -38,6 +47,23 @@ def prepare_bulk_csv_array(arr: Union[Array, ChunkedArray]):
 
 def prepare_bulk_csv_batch(data: Union[RecordBatch, Table]) -> Union[RecordBatch, Table]:
     arrays = [prepare_bulk_csv_array(arr) for arr in data]
+
+    return data.__class__.from_arrays(arrays, schema=schema([
+        field(data.schema[i].name, arrays[i].type, data.schema[i].nullable)
+        for i in range(len(data.schema))
+    ]))
+
+
+def prepare_insert_array(arr: Union[Array, ChunkedArray]):
+    if arr.type in INSERT_BATCH:
+        return INSERT_BATCH[arr.type](arr)
+    elif arr.type.__class__ in CSV_DTYPES:
+        return INSERT_BATCH[arr.type.__class__](arr)
+    return arr
+
+
+def prepare_insert_batch(data: Union[RecordBatch, Table]) -> Union[RecordBatch, Table]:
+    arrays = [prepare_insert_array(arr) for arr in data]
 
     return data.__class__.from_arrays(arrays, schema=schema([
         field(data.schema[i].name, arrays[i].type, data.schema[i].nullable)
@@ -65,7 +91,7 @@ class SQLTable:
 
     def __init__(
         self,
-        connection: "Connection",
+        connection: "msa.Connection",
         catalog: str,
         schema: str,
         name: str,
@@ -196,7 +222,8 @@ class SQLTable:
     ):
         if bulk:
             return self.bulk_insert_arrow(
-                data, None, cast, safe
+                data, None, cast, safe,
+                cursor=cursor
             )
         if cast:
             data = cast_arrow(data, self.schema_arrow, safe, fill_empty=False, drop=True)
@@ -216,7 +243,7 @@ class SQLTable:
         else:
             if isinstance(data, (RecordBatch, Table)):
                 return self.insert_pylist(
-                    [tuple(row.values()) for row in data.to_pylist()],
+                    [tuple(row.values()) for row in prepare_insert_batch(data).to_pylist()],
                     data.schema.names,
                     fast_executemany=fast_executemany,
                     stmt=stmt,
@@ -227,7 +254,7 @@ class SQLTable:
                 stmt = self.prepare_insert_statement(data.schema.names)
                 for batch in data:
                     self.insert_pylist(
-                        [tuple(row.values()) for row in batch.to_pylist()],
+                        [tuple(row.values()) for row in prepare_insert_batch(batch).to_pylist()],
                         batch.schema.names,
                         fast_executemany=fast_executemany,
                         stmt=stmt,
@@ -237,7 +264,7 @@ class SQLTable:
             else:
                 for batch in data:
                     self.insert_pylist(
-                        [tuple(row.values()) for row in batch.to_pylist()],
+                        [tuple(row.values()) for row in prepare_insert_batch(batch).to_pylist()],
                         batch.schema.names,
                         fast_executemany=fast_executemany,
                         stmt=self.prepare_insert_statement(batch.schema.names),
