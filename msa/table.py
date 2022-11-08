@@ -416,21 +416,15 @@ class SQLTable:
             input_schema = intersect_schemas(source.schema_arrow, self.schema_arrow.names)
 
             return self.insert_arrow(
-                cast_arrow(
-                    RecordBatchReader.from_batches(
-                        input_schema,
-                        source.iter_batches(
-                            batch_size=batch_size,
-                            columns=input_schema.names,
-                            use_threads=use_threads
-                        )
-                    ),
+                RecordBatchReader.from_batches(
                     input_schema,
-                    safe=safe,
-                    fill_empty=False,
-                    drop=True
+                    source.iter_batches(
+                        batch_size=batch_size,
+                        columns=input_schema.names,
+                        use_threads=use_threads
+                    )
                 ),
-                cast=False,
+                cast=cast,
                 safe=safe,
                 commit=commit,
                 cursor=cursor,
