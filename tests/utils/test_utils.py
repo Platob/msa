@@ -29,25 +29,31 @@ class UtilsTests(MSSQLTestCase):
         ]
 
         result = [
-            ('int', 'int', 4, 10, 0, True, None),
-            ('bigint', 'bigint', 8, 19, 0, True, None),
-            ('bit', 'bit', 1, 1, 0, True, None),
-            ('decimal', 'decimal', 17, 38, 38, True, None),
-            ('bigdecimal', 'decimal', 17, 39, 38, True, None),
-            ('float', 'float', 8, 53, 0, True, None),
-            ('real', 'real', 4, 24, 0, True, None),
-            ('date', 'date', 3, 10, 0, True, None),
-            ('datetime', 'datetime', 8, 23, 3, True, None),
-            ('datetime2', 'datetime2', 8, 27, 7, True, None),
-            ('smalldatetime', 'smalldatetime', 4, 16, 0, True, None),
-            ('time', 'time', 5, 16, 7, True, None),
-            ('varchar', 'varchar', 8000, 0, 0, False, 'SQL_Latin1_General_CP1_CI_AS'),
-            ('nvarchar', 'nvarchar', 8000, 0, 0, False, 'SQL_Latin1_General_CP1_CI_AS'),
-            ('binary', 'varbinary', 8000, 0, 0, True, None),
-            ('uniqueidentifier', 'uniqueidentifier', 16, 0, 0, True, None),
-            ('datetime_offset', 'datetimeoffset', 10, 34, 7, True, None),
-            ('text', 'text', 16, 0, 0, True, 'SQL_Latin1_General_CP1_CI_AS')
+            ('int', 'int', 4, 10, 0, True, None, False),
+            ('bigint', 'bigint', 8, 19, 0, True, None, False),
+            ('bit', 'bit', 1, 1, 0, True, None, False),
+            ('decimal', 'decimal', 17, 38, 38, True, None, False),
+            ('bigdecimal', 'decimal', 17, 39, 38, True, None, False),
+            ('float', 'float', 8, 53, 0, True, None, False),
+            ('real', 'real', 4, 24, 0, True, None, False),
+            ('date', 'date', 3, 10, 0, True, None, False),
+            ('datetime', 'datetime', 8, 23, 3, True, None, False),
+            ('datetime2', 'datetime2', 8, 27, 7, True, None, False),
+            ('smalldatetime', 'smalldatetime', 4, 16, 0, True, None, False),
+            ('time', 'time', 5, 16, 7, True, None, False),
+            ('varchar', 'varchar', 8000, 0, 0, False, 'SQL_Latin1_General_CP1_CI_AS', False),
+            ('nvarchar', 'nvarchar', 8000, 0, 0, False, 'SQL_Latin1_General_CP1_CI_AS', False),
+            ('binary', 'varbinary', 8000, 0, 0, True, None, False),
+            ('uniqueidentifier', 'uniqueidentifier', 16, 0, 0, True, None, False),
+            ('datetime_offset', 'datetimeoffset', 10, 34, 7, True, None, False),
+            ('text', 'text', 16, 0, 0, True, 'SQL_Latin1_General_CP1_CI_AS', False)
         ]
 
         for _1, _2 in zip(result, expected):
             self.assertEqual(mssql_column_to_pyarrow_field(_1), _2)
+
+    def test_mssql_column_to_pyarrow_field_metadata(self):
+        self.assertEqual(
+            {b'collation': b'SQL_Latin1_General_CP1_CI_AS', b'identity': b'true', b'precision': b'10', b'scale': b'0'},
+            mssql_column_to_pyarrow_field(('id', 'int', 4, 10, 0, True, "SQL_Latin1_General_CP1_CI_AS", True)).metadata
+        )

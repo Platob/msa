@@ -117,3 +117,7 @@ class Cursor(ABC):
         safe: bool = DEFAULT_SAFE_MODE
     ) -> RecordBatchReader:
         return RecordBatchReader.from_batches(self.schema_arrow, self.fetch_arrow_batches(n, safe))
+
+    # config statements
+    def set_identity_insert(self, table: "msq.table.SQLTable", on: bool = True):
+        self.execute("SET IDENTITY_INSERT %s %s" % (table.full_name, "ON" if on else "OFF"))

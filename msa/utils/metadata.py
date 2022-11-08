@@ -163,10 +163,10 @@ def mssql_column_to_pyarrow_field(row):
         left join sys.types as t
         on col.user_type_id = t.user_type_id
     where schema_name(tab.schema_id) = 'schema' and tab.name = 'name'
-    :param row: (name, dtype, max_length, precision, scale, nullable, collation)
+    :param row: (name, dtype, max_length, precision, scale, nullable, collation, identity)
     :rtype: Field
     """
-    name, dtype, max_length, precision, scale, nullable, collation = row
+    name, dtype, max_length, precision, scale, nullable, collation, identity = row
     try:
         return field(
             name,
@@ -175,7 +175,8 @@ def mssql_column_to_pyarrow_field(row):
             {
                 "precision": str(precision),
                 "scale": str(scale),
-                "collation": collation if collation else ""
+                "collation": collation if collation else "",
+                "identity": "true" if identity else "false"
             }
         )
     except KeyError:

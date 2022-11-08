@@ -86,13 +86,13 @@ def prepare_insert_batch(data: Union[RecordBatch, Table]) -> Union[RecordBatch, 
 TABLE_TYPE_COLUMNS_STATEMENT = {
     "BASE TABLE": """select col.name as name,
     type_name(user_type_id) as dtype, col.max_length as max_length, col.precision as precision, col.scale as scale,
-    col.is_nullable as nullable, col.collation_name as collation
+    col.is_nullable as nullable, col.collation_name as collation, col.is_identity as [identity]
 from sys.tables as tab
 inner join sys.columns as col on tab.object_id = col.object_id
 where schema_name(tab.schema_id) = '%s' and tab.name = '%s'""",
     "VIEW": """select c.name as name,
     type_name(user_type_id) as dtype, c.max_length, c.precision, c.scale, c.is_nullable as nullable,
-    c.collation_name as collation
+    c.collation_name as collation, col.is_identity as [identity]
 from sys.columns c
 join sys.views v on v.object_id = c.object_id
 where schema_name(v.schema_id) = '%s' and object_name(c.object_id) = '%s'"""
