@@ -412,6 +412,23 @@ class SQLTable:
         use_threads: bool = True,
         **insert_options: dict
     ):
+        """
+        Insert data from parquet file with pyarrow methods
+
+        :param source: pyarrow.parquet.ParquetFile, or something to build it
+            See https://arrow.apache.org/docs/python/generated/pyarrow.parquet.ParquetFile.html#pyarrow.parquet.ParquetFile
+        :param batch_size:
+        :param buffer_size:
+        :param cast:
+        :param safe:
+        :param commit:
+        :param cursor:
+        :param filesystem:
+        :param coerce_int96_timestamp_unit:
+        :param use_threads:
+        :param insert_options: insert_arrow options
+        :return: insert_arrow rtype
+        """
         if isinstance(source, ParquetFile):
             input_schema = intersect_schemas(source.schema_arrow, self.schema_arrow.names)
 
@@ -482,6 +499,23 @@ class SQLTable:
         use_threads: bool = True,
         **insert_parquet_file_options: dict
     ) -> Generator[FileInfo, Any, None]:
+        """
+        Insert data from parquet iterating over files, sub dir files with pyarrow methods
+
+        :param base_dir:
+        :param recursive: recursive fetch files, set True to fetch all files in sub dirs
+        :param allow_not_found:
+        :param batch_size: number of rows for batch
+        :param buffer_size:
+        :param cast:
+        :param safe:
+        :param commit:
+        :param cursor:
+        :param filesystem: pyarrow FileSystem object
+        :param coerce_int96_timestamp_unit:
+        :param use_threads:
+        :param insert_parquet_file_options: other insert_parquet_file method options
+        """
         for ofs in filesystem.get_file_info(
             FileSelector(base_dir, allow_not_found=allow_not_found, recursive=recursive)
         ):
