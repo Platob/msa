@@ -1,5 +1,8 @@
 import datetime
 import decimal
+import io
+import os
+import tempfile
 
 import numpy
 import pyarrow
@@ -373,3 +376,87 @@ class TableTests(MSSQLTestCase):
 
         self.table.truncate()
         self.assertEqual(self.table.count(), 0)
+
+    def test_insert_parquet_file_buffer(self):
+        import pyarrow.parquet as p
+        data = pyarrow.Table.from_arrays([
+            pyarrow.array(['test', 'test']),
+            pyarrow.array([b"test", None]),
+            pyarrow.array([b"image", None]),
+            pyarrow.array(['dropped', 'dropped'])
+        ], schema=pyarrow.schema([
+            pyarrow.field("string", pyarrow.string(), nullable=False),
+            pyarrow.field("binary", pyarrow.binary(), nullable=True),
+            pyarrow.field("image", pyarrow.binary(), nullable=True),
+            pyarrow.field("dropped", pyarrow.string(), nullable=False)
+        ]))
+
+        buf = io.BytesIO()
+        p.write_table(data, buf)
+        buf.seek(0)
+
+        self.table.truncate()
+        self.table.insert_parquet_file(buf)
+
+        result = [
+            list(_)
+            for _ in self.server.cursor().execute(
+                f"select string, binary, image from {self.PYMSA_UNITTEST}"
+            ).fetchall()
+        ]
+
+        self.assertEqual(
+            [
+                ['test', b"test", b"image"],
+                ['test', None, None]
+            ],
+            result
+        )
+
+    def test_insert_parquet_dir(self):
+        import pyarrow.parquet as p
+        data0 = pyarrow.Table.from_arrays([
+            pyarrow.array(['data0', 'data0']),
+            pyarrow.array([b"data0", None])
+        ], schema=pyarrow.schema([
+            pyarrow.field("string", pyarrow.string(), nullable=False),
+            pyarrow.field("binary", pyarrow.binary(), nullable=True)
+        ]))
+
+        data1 = pyarrow.Table.from_arrays([
+            pyarrow.array(['data1', 'data1']),
+            pyarrow.array([b"data1", None])
+        ], schema=pyarrow.schema([
+            pyarrow.field("string", pyarrow.string(), nullable=False),
+            pyarrow.field("binary", pyarrow.binary(), nullable=True)
+        ]))
+
+        with tempfile.TemporaryDirectory() as base_dir:
+            f0, f1 = os.path.join(base_dir, "part=0"), os.path.join(base_dir, "part=1")
+            p.write_table(data0, f0)
+            p.write_table(data1, f1)
+
+            self.table.truncate()
+            files = [
+                _ for _ in self.table.insert_parquet_dir(base_dir)
+            ]
+
+        self.assertEqual(
+            [f0.replace("\\", "/"), f1.replace("\\", "/")],  # windows path like C:\\
+            [_.path for _ in files]
+        )
+
+        result = [
+            list(_)
+            for _ in self.server.cursor().execute(
+                f"select string, binary, image from {self.PYMSA_UNITTEST}"
+            ).fetchall()
+        ]
+
+        self.assertEqual(
+            [['data0', b'data0', None],
+             ['data0', None, None],
+             ['data1', b'data1', None],
+             ['data1', None, None]],
+            result
+        )

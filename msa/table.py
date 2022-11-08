@@ -1,18 +1,31 @@
 __all__ = ["SQLTable"]
 
 import os
+import pathlib
 import tempfile
 from pathlib import Path
-from typing import Optional, Any, Union, Iterable
+from typing import Optional, Any, Union, Iterable, Generator
 
 from pyarrow import Schema, schema, Field, RecordBatch, Table, RecordBatchReader, Decimal128Type, Decimal256Type, field, \
-    Array, ChunkedArray, array, TimestampType, Time64Type, Time32Type, FixedSizeBinaryType
+    Array, ChunkedArray, array, TimestampType, Time64Type, Time32Type, FixedSizeBinaryType, NativeFile
+from pyarrow.fs import FileSystem, LocalFileSystem, FileSelector, FileType, FileInfo
+
 import pyarrow.csv as pcsv
+
+try:
+    from pyarrow.parquet import ParquetFile
+except ImportError:
+    class ParquetFile:
+        def __enter__(self):
+            pass
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
 
 from .config import DEFAULT_SAFE_MODE
 from .cursor import Cursor
 from .utils import mssql_column_to_pyarrow_field
-from .utils.arrow import cast_arrow, FLOAT64, LARGE_BINARY, BINARY, LARGE_STRING, STRING
+from .utils.arrow import cast_arrow, FLOAT64, LARGE_BINARY, BINARY, LARGE_STRING, STRING, intersect_schemas
 
 
 def binary_to_hex(scalar) -> Optional[bytes]:
@@ -25,7 +38,6 @@ INSERT_BATCH = {
     Time32Type: lambda arr: arr.cast(STRING),
     Time64Type: lambda arr: arr.cast(STRING)
 }
-
 
 CSV_DTYPES = {
     Decimal128Type: lambda arr: arr.cast(FLOAT64),
@@ -383,3 +395,132 @@ class SQLTable:
                         batch, base_dir=base_dir, cast=cast, safe=safe, commit=commit, cursor=cursor,
                         **bulk_options
                     )
+
+    # extensions
+    # Parquet
+    def insert_parquet_file(
+        self,
+        source: Union[ParquetFile, str, pathlib.Path, NativeFile],
+        batch_size: int = 65536,
+        buffer_size: int = 0,
+        cast: bool = True,
+        safe: bool = DEFAULT_SAFE_MODE,
+        commit: bool = True,
+        cursor: Optional[Cursor] = None,
+        filesystem: FileSystem = LocalFileSystem(),
+        coerce_int96_timestamp_unit: str = None,
+        use_threads: bool = True,
+        **insert_options: dict
+    ):
+        if isinstance(source, ParquetFile):
+            input_schema = intersect_schemas(source.schema_arrow, self.schema_arrow.names)
+
+            return self.insert_arrow(
+                cast_arrow(
+                    RecordBatchReader.from_batches(
+                        input_schema,
+                        source.iter_batches(
+                            batch_size=batch_size,
+                            columns=input_schema.names,
+                            use_threads=use_threads
+                        )
+                    ),
+                    input_schema,
+                    safe=safe,
+                    fill_empty=False,
+                    drop=True
+                ),
+                cast=False,
+                safe=safe,
+                commit=commit,
+                cursor=cursor,
+                **insert_options
+            )
+        elif isinstance(source, str):
+            with filesystem.open_input_file(source) as f:
+                return self.insert_parquet_file(
+                    ParquetFile(
+                        f,
+                        buffer_size=buffer_size,
+                        coerce_int96_timestamp_unit=coerce_int96_timestamp_unit
+                    ),
+                    batch_size=batch_size,
+                    buffer_size=buffer_size,
+                    cast=cast,
+                    safe=safe,
+                    commit=commit,
+                    cursor=cursor,
+                    filesystem=filesystem,
+                    use_threads=use_threads,
+                    **insert_options
+                )
+        else:
+            return self.insert_parquet_file(
+                ParquetFile(
+                    source,
+                    buffer_size=buffer_size,
+                    coerce_int96_timestamp_unit=coerce_int96_timestamp_unit
+                ),
+                batch_size=batch_size,
+                buffer_size=buffer_size,
+                cast=cast,
+                safe=safe,
+                commit=commit,
+                cursor=cursor,
+                filesystem=filesystem,
+                use_threads=use_threads,
+                **insert_options
+            )
+
+    def insert_parquet_dir(
+        self,
+        base_dir: str,
+        recursive: bool = False,
+        allow_not_found: bool = False,
+        batch_size: int = 65536,
+        buffer_size: int = 0,
+        cast: bool = True,
+        safe: bool = DEFAULT_SAFE_MODE,
+        commit: bool = True,
+        cursor: Optional[Cursor] = None,
+        filesystem: FileSystem = LocalFileSystem(),
+        coerce_int96_timestamp_unit: str = None,
+        use_threads: bool = True,
+        **insert_parquet_file_options: dict
+    ) -> Generator[FileInfo, Any, None]:
+        for ofs in filesystem.get_file_info(
+            FileSelector(base_dir, allow_not_found=allow_not_found, recursive=recursive)
+        ):
+            # <FileInfo for 'path': type=FileType.Directory>
+            # or <FileInfo for 'path': type=FileType.File, size=0>
+            if ofs.type == FileType.File:
+                if ofs.size > 0:
+                    self.insert_parquet_file(
+                        source=ofs.path,
+                        batch_size=batch_size,
+                        buffer_size=buffer_size,
+                        cast=cast,
+                        safe=safe,
+                        commit=commit,
+                        cursor=cursor,
+                        filesystem=filesystem,
+                        coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
+                        use_threads=use_threads,
+                        **insert_parquet_file_options
+                    )
+                    yield ofs
+            elif ofs.type == FileType.Directory:
+                for _ in self.insert_parquet_dir(
+                    base_dir=ofs.path,
+                    batch_size=batch_size,
+                    buffer_size=buffer_size,
+                    cast=cast,
+                    safe=safe,
+                    commit=commit,
+                    cursor=cursor,
+                    filesystem=filesystem,
+                    coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
+                    use_threads=use_threads,
+                    **insert_parquet_file_options
+                ):
+                    yield _
