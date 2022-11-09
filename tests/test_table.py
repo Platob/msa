@@ -54,8 +54,18 @@ class TableTests(MSSQLTestCase):
 
     def test_prepare_insert_statement(self):
         self.assertEqual(
-            "INSERT INTO [master].[dbo].[PYMSA_UNITTEST] ([a],[AbC Column]) VALUES (?,?)",
+            "INSERT INTO [master].[dbo].[PYMSA_UNITTEST]([a],[AbC Column]) VALUES (?,?)",
             self.table.prepare_insert_statement(["a", "AbC Column"])
+        )
+
+    def test_prepare_insert_batch_statement(self):
+        self.assertEqual(
+            "INSERT INTO [master].[dbo].[PYMSA_UNITTEST]([a],[AbC Column]) VALUES (?,?)",
+            self.table.prepare_insert_batch_statement(["a", "AbC Column"], commit_size=1)
+        )
+        self.assertEqual(
+            "INSERT INTO [master].[dbo].[PYMSA_UNITTEST]([a],[AbC Column]) VALUES (?,?),(?,?),(?,?)",
+            self.table.prepare_insert_batch_statement(["a", "AbC Column"], commit_size=3)
         )
 
     def test_repr(self):
@@ -94,6 +104,23 @@ class TableTests(MSSQLTestCase):
         self.table.insert_pylist([[1, None]], ["string", "int"])
         self.assertEqual(
             [["1", None]],
+            [
+                list(_)
+                for _ in self.server.cursor().execute(f"select string, int from {self.PYMSA_UNITTEST}").fetchall()
+            ]
+        )
+
+    def test_insert_pylist_values_batch(self):
+        data = [
+            ["test", i] for i in range(1001)
+        ]
+        self.table.insert_pylist(
+            data,
+            ["string", "int"],
+            commit_size=1000  # max 1000
+        )
+        self.assertEqual(
+            data,
             [
                 list(_)
                 for _ in self.server.cursor().execute(f"select string, int from {self.PYMSA_UNITTEST}").fetchall()
@@ -205,7 +232,7 @@ class TableTests(MSSQLTestCase):
         ]))
 
         self.table.truncate()
-        self.table.insert_arrow([data, data], cast=True, safe=True, commit=True)
+        self.table.insert_arrow([data, data], cast=True, safe=True, commit=True, commit_size=10)
 
         result = [
             list(_)
@@ -260,7 +287,8 @@ class TableTests(MSSQLTestCase):
 
         self.table.truncate()
         self.table.insert_arrow(
-            RecordBatchReader.from_batches(data.schema, [data, data]), cast=False, safe=True, commit=True
+            RecordBatchReader.from_batches(data.schema, [data, data]), cast=False, safe=True, commit=True,
+            commit_size=10
         )
 
         result = [

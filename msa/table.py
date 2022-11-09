@@ -84,6 +84,20 @@ def prepare_insert_batch(data: Union[RecordBatch, Table]) -> Union[RecordBatch, 
     ]))
 
 
+def linearize(it):
+    for _0 in it:
+        for _1 in _0:
+            yield _1
+
+
+def concat_rows(rows, batch_size: int = 1):
+    while len(rows) > batch_size:
+        resized, rows = rows[:batch_size], rows[batch_size:]
+        yield len(resized), list(linearize(resized))
+    if len(rows) > 0:
+        yield len(rows), list(linearize(rows))
+
+
 TABLE_TYPE_COLUMNS_STATEMENT = {
     "BASE TABLE": """select col.name as name,
     type_name(user_type_id) as dtype, col.max_length as max_length, col.precision as precision, col.scale as scale,
@@ -233,9 +247,30 @@ and index_id > 0""" % self.object_id).fetchall()
         with self.connection.cursor() as c:
             return c.execute(f"select count(*) from %s" % self.full_name).fetchall()[0][0]
 
-    def prepare_insert_statement(self, columns):
-        return "INSERT INTO %s ([%s]) VALUES (%s)" % (
-            self.full_name, "],[".join(columns), ",".join(("?" for _ in range(len(columns))))
+    def prepare_insert_statement(
+        self,
+        columns: list[str],
+        tablock: bool = False
+    ):
+        return "INSERT INTO %s%s([%s]) VALUES (%s)" % (
+            self.full_name,
+            "WITH(TABLOCK)" if tablock else "",
+            "],[".join(columns),
+            ",".join(("?" for _ in range(len(columns))))
+        )
+
+    def prepare_insert_batch_statement(
+        self,
+        columns: list[str],
+        tablock: bool = False,
+        commit_size: int = 1
+    ):
+        values = "(%s)" % ",".join(("?" for _ in range(len(columns))))
+        return "INSERT INTO %s%s([%s]) VALUES %s" % (
+            self.full_name,
+            "WITH(TABLOCK)" if tablock else "",
+            "],[".join(columns),
+            ",".join((values for _ in range(commit_size)))
         )
 
     def insert_pylist(
@@ -245,8 +280,23 @@ and index_id > 0""" % self.object_id).fetchall()
         fast_executemany: bool = True,
         stmt: str = "",
         commit: bool = True,
-        cursor: Optional[Cursor] = None
+        cursor: Optional[Cursor] = None,
+        tablock: bool = False,
+        commit_size: int = 1
     ):
+        """
+        Insert values like list[list[Any]]
+
+        :param rows: row batch: list[list[Any]]
+        :param columns: column names
+        :param fast_executemany: pyodbc.Cursor.fast_executemany, default = True
+        :param stmt:
+        :param commit: commit at the end
+        :param cursor: existing connection.Cursor, default will create new one
+        :param tablock: see self.prepare_insert_statement or self.prepare_insert_batch_statement
+        :param commit_size: number of row batch in insert values, must be 0 > batch_size > 1001
+        :return: None
+        """
         if rows:
             if cursor is None:
                 with self.connection.cursor() as c:
@@ -256,7 +306,9 @@ and index_id > 0""" % self.object_id).fetchall()
                         fast_executemany,
                         stmt,
                         commit=commit,
-                        cursor=c
+                        cursor=c,
+                        tablock=tablock,
+                        commit_size=commit_size
                     )
             else:
                 try:
@@ -264,7 +316,23 @@ and index_id > 0""" % self.object_id).fetchall()
                 except AttributeError:
                     pass
 
-                cursor.executemany(stmt if stmt else self.prepare_insert_statement(columns), rows)
+                if commit_size > 1:
+                    default_stmt = stmt if stmt else self.prepare_insert_batch_statement(
+                        columns, tablock=tablock, commit_size=commit_size
+                    )
+
+                    for num_rows, row_batch in concat_rows(rows, commit_size):
+                        cursor.executemany(
+                            default_stmt if num_rows == commit_size else self.prepare_insert_batch_statement(
+                                columns, tablock=tablock, commit_size=num_rows
+                            ),
+                            [row_batch]
+                        )
+                else:
+                    cursor.executemany(
+                        stmt if stmt else self.prepare_insert_statement(columns, tablock=tablock),
+                        rows
+                    )
 
                 if commit:
                     cursor.commit()
@@ -282,7 +350,8 @@ and index_id > 0""" % self.object_id).fetchall()
         commit: bool = True,
         bulk: bool = False,
         cursor: Optional[Cursor] = None,
-        tablock: bool = False
+        tablock: bool = False,
+        commit_size: int = 1
     ):
         if bulk:
             return self.bulk_insert_arrow(
@@ -304,7 +373,8 @@ and index_id > 0""" % self.object_id).fetchall()
                     commit=commit,
                     bulk=bulk,
                     cursor=cursor,
-                    tablock=tablock
+                    tablock=tablock,
+                    commit_size=commit_size
                 )
         else:
             if isinstance(data, (RecordBatch, Table)):
@@ -314,10 +384,13 @@ and index_id > 0""" % self.object_id).fetchall()
                     fast_executemany=fast_executemany,
                     stmt=stmt,
                     commit=commit,
-                    cursor=cursor
+                    cursor=cursor,
+                    tablock=tablock,
+                    commit_size=commit_size
                 )
             elif isinstance(data, RecordBatchReader):
-                stmt = self.prepare_insert_statement(data.schema.names)
+                stmt = self.prepare_insert_batch_statement(data.schema.names, tablock=tablock, commit_size=commit_size)
+
                 for batch in data:
                     self.insert_pylist(
                         [tuple(row.values()) for row in prepare_insert_batch(batch).to_pylist()],
@@ -325,7 +398,9 @@ and index_id > 0""" % self.object_id).fetchall()
                         fast_executemany=fast_executemany,
                         stmt=stmt,
                         commit=commit,
-                        cursor=cursor
+                        cursor=cursor,
+                        tablock=tablock,
+                        commit_size=commit_size
                     )
             else:
                 for batch in data:
@@ -333,9 +408,11 @@ and index_id > 0""" % self.object_id).fetchall()
                         [tuple(row.values()) for row in prepare_insert_batch(batch).to_pylist()],
                         batch.schema.names,
                         fast_executemany=fast_executemany,
-                        stmt=self.prepare_insert_statement(batch.schema.names),
+                        stmt=stmt,
                         commit=commit,
-                        cursor=cursor
+                        cursor=cursor,
+                        tablock=tablock,
+                        commit_size=commit_size
                     )
 
     def bulk_insert_file(
@@ -380,6 +457,7 @@ and index_id > 0""" % self.object_id).fetchall()
                     datafile_type=datafile_type,
                     first_row=first_row,
                     code_page=code_page,
+                    tablock=tablock,
                     other_options=other_options
                 )
         else:
@@ -454,8 +532,6 @@ and index_id > 0""" % self.object_id).fetchall()
                         tablock=tablock,
                         **bulk_options
                     )
-                except BaseException as e:
-                    raise e
                 finally:
                     os.remove(tmp_file)
             else:
@@ -483,7 +559,7 @@ and index_id > 0""" % self.object_id).fetchall()
         filesystem: FileSystem = LocalFileSystem(),
         coerce_int96_timestamp_unit: str = None,
         use_threads: bool = True,
-        **insert_options: dict
+        **insert_arrow: dict
     ):
         """
         Insert data from parquet file with pyarrow methods
@@ -499,7 +575,7 @@ and index_id > 0""" % self.object_id).fetchall()
         :param filesystem:
         :param coerce_int96_timestamp_unit:
         :param use_threads:
-        :param insert_options: insert_arrow options
+        :param insert_arrow: self.insert_arrow options
         :return: insert_arrow rtype
         """
         if isinstance(source, ParquetFile):
@@ -518,7 +594,7 @@ and index_id > 0""" % self.object_id).fetchall()
                 safe=safe,
                 commit=commit,
                 cursor=cursor,
-                **insert_options
+                **insert_arrow
             )
         elif isinstance(source, str):
             with filesystem.open_input_file(source) as f:
@@ -536,7 +612,7 @@ and index_id > 0""" % self.object_id).fetchall()
                     cursor=cursor,
                     filesystem=filesystem,
                     use_threads=use_threads,
-                    **insert_options
+                    **insert_arrow
                 )
         else:
             return self.insert_parquet_file(
@@ -553,7 +629,7 @@ and index_id > 0""" % self.object_id).fetchall()
                 cursor=cursor,
                 filesystem=filesystem,
                 use_threads=use_threads,
-                **insert_options
+                **insert_arrow
             )
 
     def insert_parquet_dir(
@@ -587,7 +663,7 @@ and index_id > 0""" % self.object_id).fetchall()
         :param filesystem: pyarrow FileSystem object
         :param coerce_int96_timestamp_unit:
         :param use_threads:
-        :param insert_parquet_file_options: other insert_parquet_file method options
+        :param insert_parquet_file_options: other self.insert_parquet_file options
         """
         for ofs in filesystem.get_file_info(
             FileSelector(base_dir, allow_not_found=allow_not_found, recursive=recursive)
