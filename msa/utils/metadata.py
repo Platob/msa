@@ -147,23 +147,10 @@ def pyodbc_description_to_pyarrow_field(description: tuple, metadata: Optional[d
     )
 
 
-def mssql_column_to_pyarrow_field(row):
+def mssql_column_to_pyarrow_field(row, column_type: str = "table.column"):
     """
-    from SQL query
-    select col.name as name,
-        t.name as dtype,
-        t.max_length as max_length,
-        t.precision as precision,
-        t.scale as scale,
-        t.is_nullable as nullable,
-        t.collation_name as collation
-    from sys.tables as tab
-        inner join sys.columns as col
-            on tab.object_id = col.object_id
-        left join sys.types as t
-        on col.user_type_id = t.user_type_id
-    where schema_name(tab.schema_id) = 'schema' and tab.name = 'name'
     :param row: (name, dtype, max_length, precision, scale, nullable, collation, identity)
+    :param column_type: set in field.metadata["type"] = type
     :rtype: Field
     """
     name, dtype, max_length, precision, scale, nullable, collation, identity = row
@@ -173,6 +160,7 @@ def mssql_column_to_pyarrow_field(row):
             STRING_DATATYPES[dtype](precision=precision, scale=scale),
             nullable,
             {
+                "type": column_type,
                 "precision": str(precision),
                 "scale": str(scale),
                 "collation": collation if collation else "",

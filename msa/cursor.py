@@ -119,5 +119,50 @@ class Cursor(ABC):
         return RecordBatchReader.from_batches(self.schema_arrow, self.fetch_arrow_batches(n, safe))
 
     # config statements
-    def set_identity_insert(self, table: "msq.table.SQLTable", on: bool = True):
+    def set_identity_insert(self, table: "msa.table.SQLTable", on: bool = True):
         self.execute("SET IDENTITY_INSERT %s %s" % (table.full_name, "ON" if on else "OFF"))
+
+    def create_table_index(
+        self,
+        table: "msa.table.SQLTable",
+        name: str = "",
+        type: str = "",
+        columns: list[str] = ()
+    ):
+        """
+        See https://learn.microsoft.com/en-us/sql/t-sql/statements/create-index-transact-sql?view=sql-server-ver16
+
+        "CREATE %s INDEX [%s] ON %s.%s.%s (%s)" % (
+            type,
+            name if name else "IDX:%s" % ("_".join(columns)),
+            table.catalog, table.schema, table.name,
+            ",".join(columns)
+        )
+        :param table: msa.table.SQLTable
+        :param name: index name
+        :param type:
+        :param columns: column names
+        """
+        self.execute(
+            "CREATE %s INDEX [%s] ON %s.%s.%s (%s)" % (
+                type,
+                name if name else "IDX:%s" % ("_".join(columns)),
+                table.catalog, table.schema, table.name,
+                ",".join(columns)
+            )
+        )
+
+    def drop_table_index(self, table: "msa.table.SQLTable", name: str):
+        self.execute("DROP INDEX [%s] ON %s" % (name, table.full_name))
+
+    def disable_table_index(self, table: "msa.table.SQLTable", name: str):
+        self.execute("ALTER INDEX [%s] ON %s DISABLE" % (name, table.full_name))
+
+    def disable_table_all_indexes(self, table: "msa.table.SQLTable"):
+        self.execute("ALTER INDEX ALL ON %s DISABLE" % table.full_name)
+
+    def rebuild_table_index(self, table: "msa.table.SQLTable", name: str):
+        self.execute("ALTER INDEX [%s] ON %s REBUILD" % (name, table.full_name))
+
+    def rebuild_table_all_indexes(self, table: "msa.table.SQLTable"):
+        self.execute("ALTER INDEX ALL ON %s REBUILD" % table.full_name)

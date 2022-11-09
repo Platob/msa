@@ -5,6 +5,7 @@ from msa import MSSQL
 
 class MSSQLTestCase(unittest.TestCase):
     PYMSA_UNITTEST = "PYMSA_UNITTEST"
+    vPYMSA_UNITTEST = "vPYMSA_UNITTEST"
 
     @staticmethod
     def get_test_pymssql_server():
@@ -56,4 +57,16 @@ class MSSQLTestCase(unittest.TestCase):
     char char,
     nchar nchar
 )""")
+            c.commit()
+
+    @classmethod
+    def create_test_view(cls, server: MSSQL):
+        cls.create_test_table(server)
+        with server.cursor() as c:
+            try:
+                c.execute(f"DROP VIEW {cls.vPYMSA_UNITTEST}")
+            except Exception:
+                pass
+            c.execute(f"""CREATE VIEW {cls.vPYMSA_UNITTEST}
+            AS SELECT int, decimal, datetime2, string from {cls.PYMSA_UNITTEST}""")
             c.commit()

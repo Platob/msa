@@ -54,6 +54,9 @@ class UtilsTests(MSSQLTestCase):
 
     def test_mssql_column_to_pyarrow_field_metadata(self):
         self.assertEqual(
-            {b'collation': b'SQL_Latin1_General_CP1_CI_AS', b'identity': b'true', b'precision': b'10', b'scale': b'0'},
+            {
+                b'collation': b'SQL_Latin1_General_CP1_CI_AS', b'identity': b'true', b'precision': b'10',
+                b'scale': b'0', b'type': b'table.column'
+            },
             mssql_column_to_pyarrow_field(('id', 'int', 4, 10, 0, True, "SQL_Latin1_General_CP1_CI_AS", True)).metadata
         )

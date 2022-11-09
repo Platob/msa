@@ -1,4 +1,4 @@
-__all__ = ["SQLTable"]
+__all__ = ["SQLTable", "SQLView", "SQLIndex"]
 
 import os
 import pathlib
@@ -6,8 +6,9 @@ import tempfile
 from pathlib import Path
 from typing import Optional, Any, Union, Iterable, Generator
 
-from pyarrow import Schema, schema, Field, RecordBatch, Table, RecordBatchReader, Decimal128Type, Decimal256Type, field, \
-    Array, ChunkedArray, array, TimestampType, Time64Type, Time32Type, FixedSizeBinaryType, NativeFile
+from pyarrow import Schema, schema, Field, field, RecordBatch, Table, RecordBatchReader, \
+    Array, ChunkedArray, array, TimestampType, Time64Type, Decimal128Type, Decimal256Type, Time32Type, \
+    FixedSizeBinaryType, NativeFile
 from pyarrow.fs import FileSystem, LocalFileSystem, FileSelector, FileType, FileInfo
 
 import pyarrow.csv as pcsv
@@ -89,13 +90,12 @@ TABLE_TYPE_COLUMNS_STATEMENT = {
     col.is_nullable as nullable, col.collation_name as collation, col.is_identity as [identity]
 from sys.tables as tab
 inner join sys.columns as col on tab.object_id = col.object_id
-where schema_name(tab.schema_id) = '%s' and tab.name = '%s'""",
+where tab.object_id = %s""",
     "VIEW": """select c.name as name,
     type_name(user_type_id) as dtype, c.max_length, c.precision, c.scale, c.is_nullable as nullable,
-    c.collation_name as collation, col.is_identity as [identity]
+    c.collation_name as collation, CAST(0 AS BIT) as [identity]
 from sys.columns c
-join sys.views v on v.object_id = c.object_id
-where schema_name(v.schema_id) = '%s' and object_name(c.object_id) = '%s'"""
+join sys.views v on v.object_id = %s and v.object_id = c.object_id"""
 }
 
 
@@ -108,6 +108,7 @@ class SQLTable:
         schema: str,
         name: str,
         type: str,
+        object_id: int,
         schema_arrow: Optional[Schema] = None
     ):
         self.__schema_arrow = schema_arrow
@@ -117,9 +118,19 @@ class SQLTable:
         self.schema = schema
         self.name = name
         self.type = type
+        self.object_id = object_id
+
+    def __hash__(self):
+        return self.object_id
+
+    def __eq__(self, other):
+        if isinstance(other, SQLTable):
+            return self.__hash__() == other.__hash__()
+        return False
 
     def __repr__(self):
-        return "SQLTable('%s', '%s', '%s')" % (
+        return "%s('%s', '%s', '%s')" % (
+            self.__class__.__name__,
             self.catalog, self.schema, self.name
         )
 
@@ -136,13 +147,24 @@ class SQLTable:
         return self.field(item)
 
     @property
+    def connection(self):
+        if self.__connection.closed:
+            self.__connection = self.__connection.server.connect()
+        return self.__connection
+
+    @connection.setter
+    def connection(self, connection):
+        from .connection import Connection
+        self.__connection: Connection = connection
+
+    @property
     def schema_arrow(self) -> Schema:
         if self.__schema_arrow is None:
             self.__schema_arrow = schema(
                 [
-                    mssql_column_to_pyarrow_field(row)
+                    mssql_column_to_pyarrow_field(row, column_type="table.column")
                     for row in self.connection.cursor().execute(
-                        TABLE_TYPE_COLUMNS_STATEMENT[self.type] % (self.schema, self.name)
+                        TABLE_TYPE_COLUMNS_STATEMENT[self.type] % self.object_id
                     ).fetchall()
                 ],
                 metadata={
@@ -167,6 +189,35 @@ class SQLTable:
             raise ValueError("%s: Cannot find column '%s' in %s" % (
                 repr(self), name, self.schema_arrow.names
             ))
+
+    @property
+    def indexes(self) -> dict[str, "SQLIndex"]:
+        with self.connection.cursor() as cursor:
+            return {
+                row[1]: SQLIndex(
+                    self,
+                    index_id=row[0],
+                    name=row[1],
+                    columns=row[2].split("||"),
+                    type=row[3],
+                    unique=row[4]
+                )
+                for row in cursor.execute("""select i.index_id, i.[name],
+    substring(column_names, 1, len(column_names)-2) as [columns],
+    i.type_desc,
+    i.is_unique
+from sys.objects t
+inner join sys.indexes i on t.object_id = %s and t.object_id = i.object_id
+cross apply (select col.[name] + '||' from sys.index_columns ic inner join sys.columns col
+    on ic.object_id = col.object_id
+    and ic.column_id = col.column_id
+where ic.object_id = t.object_id
+    and ic.index_id = i.index_id
+    order by key_ordinal
+    for xml path ('') ) D (column_names)
+where t.is_ms_shipped <> 1
+and index_id > 0""" % self.object_id).fetchall()
+            }
 
     def truncate(self):
         with self.connection.cursor() as c:
@@ -328,8 +379,9 @@ class SQLTable:
                 )
         else:
             options = "FORMAT = '%s', DATAFILETYPE = '%s',  FIRSTROW = %s, FIELDQUOTE = '%s', ROWTERMINATOR = '%s', " \
-                      "CODEPAGE = '%s'" % (
-                          file_format, datafile_type, first_row, field_quote, row_terminator, code_page
+                      "CODEPAGE = '%s', FIELDTERMINATOR = '%s'" % (
+                        file_format, datafile_type, first_row, field_quote, row_terminator, code_page,
+                        field_terminator
                       )
             if other_options:
                 options += ", " + other_options
@@ -349,6 +401,7 @@ class SQLTable:
         safe: bool = DEFAULT_SAFE_MODE,
         commit: bool = True,
         cursor: Optional[Cursor] = None,
+        delimiter: str = ",",
         **bulk_options: dict[str, str]
     ):
         if base_dir is None:
@@ -372,13 +425,13 @@ class SQLTable:
 
                 # write in tmp file
                 try:
-                    pcsv.write_csv(prepare_bulk_csv_batch(data), tmp_file)
+                    pcsv.write_csv(prepare_bulk_csv_batch(data), tmp_file, pcsv.WriteOptions(delimiter=delimiter))
                     self.bulk_insert_file(
                         file=tmp_file,
                         commit=commit,
                         cursor=cursor,
                         file_format="CSV",
-                        field_terminator=",",
+                        field_terminator=delimiter,
                         row_terminator="\n",
                         field_quote='"',
                         datafile_type="char",
@@ -552,3 +605,68 @@ class SQLTable:
                     **insert_parquet_file_options
                 ):
                     yield _
+
+
+class SQLView(SQLTable):
+
+    def truncate(self):
+        with self.connection.cursor() as c:
+            c.execute(f"TRUNCATE VIEW [%s].[%s]" % (self.schema, self.name))
+            c.commit()
+
+    def drop(self):
+        with self.connection.cursor() as c:
+            c.execute(f"DROP VIEW [%s].[%s]" % (self.schema, self.name))
+            c.commit()
+
+
+class SQLIndex:
+
+    def __init__(
+        self,
+        table: SQLTable,
+        index_id: int,
+        name: str,
+        columns: list[str],
+        type: str,
+        unique: bool
+    ):
+        self.index_id = index_id
+        self.table = table
+        self.name = name
+        self.columns = columns
+        self.type = type
+        self.unique = unique
+
+    @property
+    def disabled(self) -> bool:
+        with self.connection.cursor() as c:
+            return bool(c.execute("""select is_disabled from sys.objects t
+inner join sys.indexes i on t.object_id = %s and t.object_id = i.object_id
+where t.is_ms_shipped <> 1 and index_id = %s""" % (self.table.object_id, self.index_id)).fetchall()[0][0])
+
+    def __hash__(self):
+        return hash((
+            self.table.__hash__(), self.name, tuple(self.columns), self.type, self.unique
+        ))
+
+    def __eq__(self, other):
+        if isinstance(other, SQLIndex):
+            return self.__hash__() == other.__hash__()
+        return False
+
+    def __repr__(self):
+        return "SQLIndex(table='%s', name='%s', columns=%s, type='%s', unique=%s)" % (
+            self.table, self.name, self.columns, self.type, self.unique
+        )
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def connection(self):
+        return self.table.connection
+
+    def drop(self):
+        with self.connection.cursor() as c:
+            c.execute("DROP INDEX %s.[%s]" % (self.table.full_name, self.name))

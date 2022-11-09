@@ -9,6 +9,7 @@ import pyarrow
 import pyarrow as pa
 from pyarrow import schema, RecordBatchReader
 
+from msa.table import SQLIndex
 from tests import MSSQLTestCase
 
 
@@ -314,7 +315,8 @@ class TableTests(MSSQLTestCase):
         self.table.truncate()
         self.table.bulk_insert_arrow(
             data,
-            safe=True, commit=True
+            safe=True, commit=True,
+            delimiter=";"
         )
 
         result = [
@@ -460,3 +462,108 @@ class TableTests(MSSQLTestCase):
              ['data1', None, None]],
             result
         )
+
+    def test_create_drop_index(self):
+        with self.server.cursor() as c:
+            c.create_table_index(
+                table=self.table,
+                columns=["string", "int"]
+            )
+            c.commit()
+
+        self.assertEqual(
+            {
+                'IDX:string_int': SQLIndex(
+                    index_id=0,
+                    table=self.table, name='IDX:string_int', columns=['string', 'int'],
+                    type='NONCLUSTERED', unique=False
+                )
+            },
+            self.table.indexes
+        )
+
+        with self.server.cursor() as c:
+            c.drop_table_index(
+                table=self.table,
+                name="IDX:string_int"
+            )
+            c.commit()
+
+        self.assertEqual(
+            {},
+            self.table.indexes
+        )
+
+    def test_disable_rebuild_index(self):
+        with self.server.connect() as connection:
+            with connection.cursor() as c:
+                c.create_table_index(
+                    table=self.table,
+                    name="test_index",
+                    columns=["string", "int"]
+                )
+                c.commit()
+
+                try:
+                    # disable
+                    self.assertEqual(
+                        False,
+                        self.table.indexes["test_index"].disabled
+                    )
+                    c.disable_table_index(self.table, "test_index")
+                    c.commit()
+                    self.assertEqual(
+                        True,
+                        self.table.indexes["test_index"].disabled
+                    )
+
+                    # rebuild
+                    c.rebuild_table_index(self.table, "test_index")
+                    c.commit()
+                    self.assertEqual(
+                        False,
+                        self.table.indexes["test_index"].disabled
+                    )
+                finally:
+                    c.drop_table_index(
+                        table=self.table,
+                        name="test_index"
+                    )
+                    c.commit()
+
+    def test_disable_rebuild_all_indexes(self):
+        with self.server.connect() as connection:
+            with connection.cursor() as c:
+                c.create_table_index(
+                    table=self.table,
+                    name="test_index",
+                    columns=["string", "int"]
+                )
+                c.commit()
+
+                try:
+                    # disable
+                    self.assertEqual(
+                        False,
+                        self.table.indexes["test_index"].disabled
+                    )
+                    c.disable_table_all_indexes(self.table)
+                    c.commit()
+                    self.assertEqual(
+                        True,
+                        self.table.indexes["test_index"].disabled
+                    )
+
+                    # rebuild
+                    c.rebuild_table_all_indexes(self.table)
+                    c.commit()
+                    self.assertEqual(
+                        False,
+                        self.table.indexes["test_index"].disabled
+                    )
+                finally:
+                    c.drop_table_index(
+                        table=self.table,
+                        name="test_index"
+                    )
+                    c.commit()
