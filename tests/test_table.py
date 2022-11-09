@@ -110,25 +110,43 @@ class TableTests(MSSQLTestCase):
             ]
         )
 
+    def test_insert_pylist_large_values_batch(self):
+        data = [
+            ["test", i, b"bin", datetime.datetime.now()] for i in range(10001)
+        ]
+        self.table.truncate()
+        self.table.insert_pylist(
+            data,
+            ["string", "int", "binary", "datetime2"],
+            tablock=False,
+            fast_executemany=False,
+            commit_size=1000  # max 1000
+        )
+
+        with self.server.cursor() as c:
+            c.execute(f"select string, int, binary, datetime2 from {self.PYMSA_UNITTEST}")
+            result = c.fetchall(100)
+
+        self.assertEqual(len(data), len(result))
+
     def test_insert_pylist_values_batch(self):
         data = [
-            ["test", i, b"bin"] for i in range(10001)
+            ["test", i, b"bin"] for i in range(101)
         ]
         self.table.truncate()
         self.table.insert_pylist(
             data,
             ["string", "int", "binary"],
             tablock=False,
-            commit_size=1000  # max 1000
+            fast_executemany=False,
+            commit_size=10  # max 1000
         )
 
-        self.assertEqual(
-            data,
-            sorted([
-                list(_)
-                for _ in self.server.cursor().execute(f"select string, int, binary from {self.PYMSA_UNITTEST}").fetchall()
-            ])
-        )
+        with self.server.cursor() as c:
+            c.execute(f"select string, int, binary from {self.PYMSA_UNITTEST}")
+            result = c.fetchall(100)
+
+        self.assertEqual(data, [list(_) for _ in result])
 
     def test_insert_pylist_values_batch_tablock(self):
         data = [

@@ -335,10 +335,8 @@ and index_id > 0""" % self.object_id).fetchall()
                     if len(rows) == 1:
                         last = rows[0]
                     else:
-                        rows, last = rows[:-1], rows[-1]
-
-                        for values in rows:
-                            cursor.executemany(stmt, [values])
+                        last = rows[-1]
+                        cursor.executemany(stmt, rows[:-1])
 
                     cursor.executemany(
                         self.prepare_insert_batch_statement(
