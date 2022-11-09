@@ -151,18 +151,24 @@ class Cursor(ABC):
                 ",".join(columns)
             )
         )
+        self.commit()
 
     def drop_table_index(self, table: "msa.table.SQLTable", name: str):
         self.execute("DROP INDEX [%s] ON %s" % (name, table.full_name))
+        self.commit()
 
     def disable_table_index(self, table: "msa.table.SQLTable", name: str):
         self.execute("ALTER INDEX [%s] ON %s DISABLE" % (name, table.full_name))
+        self.commit()
 
     def disable_table_all_indexes(self, table: "msa.table.SQLTable"):
         self.execute("ALTER INDEX ALL ON %s DISABLE" % table.full_name)
+        self.commit()
 
     def rebuild_table_index(self, table: "msa.table.SQLTable", name: str):
         self.execute("ALTER INDEX [%s] ON %s REBUILD" % (name, table.full_name))
+        self.commit()
 
     def rebuild_table_all_indexes(self, table: "msa.table.SQLTable"):
         self.execute("ALTER INDEX ALL ON %s REBUILD" % table.full_name)
+        self.commit()

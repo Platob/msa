@@ -316,7 +316,8 @@ class TableTests(MSSQLTestCase):
         self.table.bulk_insert_arrow(
             data,
             safe=True, commit=True,
-            delimiter=";"
+            delimiter=";",
+            tablock=True
         )
 
         result = [
@@ -502,7 +503,6 @@ class TableTests(MSSQLTestCase):
                     name="test_index",
                     columns=["string", "int"]
                 )
-                c.commit()
 
                 try:
                     # disable
@@ -511,7 +511,6 @@ class TableTests(MSSQLTestCase):
                         self.table.indexes["test_index"].disabled
                     )
                     c.disable_table_index(self.table, "test_index")
-                    c.commit()
                     self.assertEqual(
                         True,
                         self.table.indexes["test_index"].disabled
@@ -519,7 +518,6 @@ class TableTests(MSSQLTestCase):
 
                     # rebuild
                     c.rebuild_table_index(self.table, "test_index")
-                    c.commit()
                     self.assertEqual(
                         False,
                         self.table.indexes["test_index"].disabled
@@ -529,7 +527,6 @@ class TableTests(MSSQLTestCase):
                         table=self.table,
                         name="test_index"
                     )
-                    c.commit()
 
     def test_disable_rebuild_all_indexes(self):
         with self.server.connect() as connection:
@@ -539,7 +536,6 @@ class TableTests(MSSQLTestCase):
                     name="test_index",
                     columns=["string", "int"]
                 )
-                c.commit()
 
                 try:
                     # disable
@@ -548,7 +544,6 @@ class TableTests(MSSQLTestCase):
                         self.table.indexes["test_index"].disabled
                     )
                     c.disable_table_all_indexes(self.table)
-                    c.commit()
                     self.assertEqual(
                         True,
                         self.table.indexes["test_index"].disabled
@@ -556,7 +551,6 @@ class TableTests(MSSQLTestCase):
 
                     # rebuild
                     c.rebuild_table_all_indexes(self.table)
-                    c.commit()
                     self.assertEqual(
                         False,
                         self.table.indexes["test_index"].disabled
@@ -566,4 +560,3 @@ class TableTests(MSSQLTestCase):
                         table=self.table,
                         name="test_index"
                     )
-                    c.commit()

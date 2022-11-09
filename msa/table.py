@@ -281,12 +281,14 @@ and index_id > 0""" % self.object_id).fetchall()
         stmt: str = "",
         commit: bool = True,
         bulk: bool = False,
-        cursor: Optional[Cursor] = None
+        cursor: Optional[Cursor] = None,
+        tablock: bool = False
     ):
         if bulk:
             return self.bulk_insert_arrow(
                 data, None, cast, safe,
-                cursor=cursor
+                cursor=cursor,
+                tablock=tablock
             )
         if cast:
             data = cast_arrow(data, self.schema_arrow, safe, fill_empty=False, drop=True)
@@ -301,7 +303,8 @@ and index_id > 0""" % self.object_id).fetchall()
                     stmt=stmt,
                     commit=commit,
                     bulk=bulk,
-                    cursor=cursor
+                    cursor=cursor,
+                    tablock=tablock
                 )
         else:
             if isinstance(data, (RecordBatch, Table)):
@@ -347,6 +350,7 @@ and index_id > 0""" % self.object_id).fetchall()
         datafile_type: str = 'char',
         first_row: int = 2,
         code_page: str = '65001',
+        tablock: bool = False,
         other_options: str = ""
     ):
         """
@@ -362,6 +366,7 @@ and index_id > 0""" % self.object_id).fetchall()
         :param datafile_type:
         :param first_row:
         :param code_page: encoding, default '65001' = utf-8
+        :param tablock: use TABLOCK options
         :param other_options: string to append: WITH (FORMAT = 'file_format', %s) % other_options
         :return: None
         """
@@ -383,6 +388,8 @@ and index_id > 0""" % self.object_id).fetchall()
                         file_format, datafile_type, first_row, field_quote, row_terminator, code_page,
                         field_terminator
                       )
+            if tablock:
+                options += ", TABLOCK"
             if other_options:
                 options += ", " + other_options
 
@@ -402,18 +409,26 @@ and index_id > 0""" % self.object_id).fetchall()
         commit: bool = True,
         cursor: Optional[Cursor] = None,
         delimiter: str = ",",
+        file_format: str = "CSV",
+        tablock: bool = False,
         **bulk_options: dict[str, str]
     ):
         if base_dir is None:
             with tempfile.TemporaryDirectory() as base_dir:
                 return self.bulk_insert_arrow(
                     data, base_dir=base_dir, cast=cast, safe=safe, commit=commit, cursor=cursor,
+                    delimiter=delimiter,
+                    file_format=file_format,
+                    tablock=tablock,
                     **bulk_options
                 )
         elif cursor is None:
             with self.connection.cursor() as cursor:
                 return self.bulk_insert_arrow(
                     data, base_dir=base_dir, cast=cast, safe=safe, commit=commit, cursor=cursor,
+                    delimiter=delimiter,
+                    file_format=file_format,
+                    tablock=tablock,
                     **bulk_options
                 )
         else:
@@ -430,12 +445,14 @@ and index_id > 0""" % self.object_id).fetchall()
                         file=tmp_file,
                         commit=commit,
                         cursor=cursor,
-                        file_format="CSV",
+                        file_format=file_format,
                         field_terminator=delimiter,
                         row_terminator="\n",
                         field_quote='"',
                         datafile_type="char",
-                        first_row=2
+                        first_row=2,
+                        tablock=tablock,
+                        **bulk_options
                     )
                 except BaseException as e:
                     raise e
@@ -446,6 +463,9 @@ and index_id > 0""" % self.object_id).fetchall()
                 for batch in data:
                     self.bulk_insert_arrow(
                         batch, base_dir=base_dir, cast=cast, safe=safe, commit=commit, cursor=cursor,
+                        delimiter=delimiter,
+                        file_format=file_format,
+                        tablock=tablock,
                         **bulk_options
                     )
 
