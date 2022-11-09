@@ -112,22 +112,46 @@ class TableTests(MSSQLTestCase):
 
     def test_insert_pylist_values_batch(self):
         data = [
-            ["test", i] for i in range(1001)
+            ["test", i, b"bin"] for i in range(10001)
         ]
+        self.table.truncate()
         self.table.insert_pylist(
             data,
-            ["string", "int"],
+            ["string", "int", "binary"],
+            tablock=False,
             commit_size=1000  # max 1000
         )
+
         self.assertEqual(
             data,
-            [
+            sorted([
                 list(_)
-                for _ in self.server.cursor().execute(f"select string, int from {self.PYMSA_UNITTEST}").fetchall()
-            ]
+                for _ in self.server.cursor().execute(f"select string, int, binary from {self.PYMSA_UNITTEST}").fetchall()
+            ])
+        )
+
+    def test_insert_pylist_values_batch_tablock(self):
+        data = [
+            ["test", i, b"bin"] for i in range(10001)
+        ]
+        self.table.truncate()
+        self.table.insert_pylist(
+            data,
+            ["string", "int", "binary"],
+            tablock=True,
+            commit_size=1000  # max 1000
+        )
+
+        self.assertEqual(
+            data,
+            sorted([
+                list(_)
+                for _ in self.server.cursor().execute(f"select string, int, binary from {self.PYMSA_UNITTEST}").fetchall()
+            ])
         )
 
     def test_insert_pylist_decimal(self):
+        self.table.truncate()
         self.table.insert_pylist([[1, decimal.Decimal("10.30000")]], ["string", "decimal"])
         self.assertEqual(
             [["1", decimal.Decimal("10.30000")]],
@@ -139,8 +163,9 @@ class TableTests(MSSQLTestCase):
 
     def test_insert_large_pylist(self):
         data = [
-            ["1", None] for _ in range(1001)
+            ["1", None] for _ in range(10000)
         ]
+        self.table.truncate()
         self.table.insert_pylist(data, ["string", "int"])
         self.assertEqual(
             data,

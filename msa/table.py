@@ -93,9 +93,9 @@ def linearize(it):
 def concat_rows(rows, batch_size: int = 1):
     while len(rows) > batch_size:
         resized, rows = rows[:batch_size], rows[batch_size:]
-        yield len(resized), list(linearize(resized))
+        yield list(linearize(resized))
     if len(rows) > 0:
-        yield len(rows), list(linearize(rows))
+        yield list(linearize(rows))
 
 
 TABLE_TYPE_COLUMNS_STATEMENT = {
@@ -114,6 +114,10 @@ join sys.views v on v.object_id = %s and v.object_id = c.object_id"""
 
 
 class SQLTable:
+
+    @staticmethod
+    def safe_commit_size(commit_size: int, columns_len: int):
+        return int(min(columns_len * commit_size, 2099) / columns_len)
 
     def __init__(
         self,
@@ -294,7 +298,8 @@ and index_id > 0""" % self.object_id).fetchall()
         :param commit: commit at the end
         :param cursor: existing connection.Cursor, default will create new one
         :param tablock: see self.prepare_insert_statement or self.prepare_insert_batch_statement
-        :param commit_size: number of row batch in insert values, must be 0 > batch_size > 1001
+        :param commit_size: number of row batch in insert values
+            Must be 0 > batch_size > 1001 and len(columns) * commit_size <= 2100
         :return: None
         """
         if rows:
@@ -317,17 +322,30 @@ and index_id > 0""" % self.object_id).fetchall()
                     pass
 
                 if commit_size > 1:
-                    default_stmt = stmt if stmt else self.prepare_insert_batch_statement(
+                    # https://stackoverflow.com/questions/845931/maximum-number-of-parameters-in-sql-query/845972#845972
+                    # Maximum < 2100 parameters
+                    commit_size = self.safe_commit_size(commit_size, len(columns))
+
+                    stmt = stmt if stmt else self.prepare_insert_batch_statement(
                         columns, tablock=tablock, commit_size=commit_size
                     )
 
-                    for num_rows, row_batch in concat_rows(rows, commit_size):
-                        cursor.executemany(
-                            default_stmt if num_rows == commit_size else self.prepare_insert_batch_statement(
-                                columns, tablock=tablock, commit_size=num_rows
-                            ),
-                            [row_batch]
-                        )
+                    rows: list[list] = list(concat_rows(rows, commit_size))
+
+                    if len(rows) == 1:
+                        last = rows[0]
+                    else:
+                        rows, last = rows[:-1], rows[-1]
+
+                        for values in rows:
+                            cursor.executemany(stmt, [values])
+
+                    cursor.executemany(
+                        self.prepare_insert_batch_statement(
+                            columns, tablock=tablock, commit_size=int(len(last) / len(columns))
+                        ),
+                        [last]
+                    )
                 else:
                     cursor.executemany(
                         stmt if stmt else self.prepare_insert_statement(columns, tablock=tablock),
@@ -351,13 +369,15 @@ and index_id > 0""" % self.object_id).fetchall()
         bulk: bool = False,
         cursor: Optional[Cursor] = None,
         tablock: bool = False,
-        commit_size: int = 1
+        commit_size: int = 1,
+        bulk_options: dict[str, Union[str, int, bool]] = {}
     ):
         if bulk:
             return self.bulk_insert_arrow(
                 data, None, cast, safe,
                 cursor=cursor,
-                tablock=tablock
+                tablock=tablock,
+                **bulk_options
             )
         if cast:
             data = cast_arrow(data, self.schema_arrow, safe, fill_empty=False, drop=True)
@@ -389,6 +409,7 @@ and index_id > 0""" % self.object_id).fetchall()
                     commit_size=commit_size
                 )
             elif isinstance(data, RecordBatchReader):
+                commit_size = self.safe_commit_size(commit_size, len(data.schema.names))
                 stmt = self.prepare_insert_batch_statement(data.schema.names, tablock=tablock, commit_size=commit_size)
 
                 for batch in data:
