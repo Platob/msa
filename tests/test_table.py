@@ -119,7 +119,7 @@ class TableTests(MSSQLTestCase):
             data,
             ["string", "int", "binary", "datetime2"],
             tablock=False,
-            fast_executemany=False,
+            fast_executemany=True,
             commit_size=1000  # max 1000
         )
 
@@ -138,7 +138,7 @@ class TableTests(MSSQLTestCase):
             data,
             ["string", "int", "binary"],
             tablock=False,
-            fast_executemany=False,
+            fast_executemany=True,
             commit_size=10  # max 1000
         )
 
