@@ -481,6 +481,7 @@ class Cursor(ABC):
         filesystem: FileSystem = LocalFileSystem(),
         coerce_int96_timestamp_unit: str = None,
         use_threads: bool = True,
+        exclude_columns: list[str] = (),
         **insert_arrow: dict
     ):
         """
@@ -494,15 +495,20 @@ class Cursor(ABC):
         :param cast:
         :param safe:
         :param commit:
-        :param cursor:
         :param filesystem:
         :param coerce_int96_timestamp_unit:
         :param use_threads:
+        :param exclude_columns: list of column names to exclude from parquet read
         :param insert_arrow: self.insert_arrow options
         :return: insert_arrow rtype
         """
         if isinstance(source, ParquetFile):
-            input_schema = intersect_schemas(source.schema_arrow, table.schema_arrow.names)
+            input_schema = intersect_schemas(
+                schema(
+                    [f for f in source.schema_arrow if f.name not in exclude_columns], source.schema_arrow.metadata
+                ) if exclude_columns else source.schema_arrow,
+                table.schema_arrow.names
+            )
 
             return self.insert_arrow(
                 table=table,
@@ -535,6 +541,7 @@ class Cursor(ABC):
                     commit=commit,
                     filesystem=filesystem,
                     use_threads=use_threads,
+                    exclude_columns=exclude_columns,
                     **insert_arrow
                 )
         else:
@@ -552,6 +559,7 @@ class Cursor(ABC):
                 commit=commit,
                 filesystem=filesystem,
                 use_threads=use_threads,
+                exclude_columns=exclude_columns,
                 **insert_arrow
             )
 
@@ -569,6 +577,7 @@ class Cursor(ABC):
         filesystem: FileSystem = LocalFileSystem(),
         coerce_int96_timestamp_unit: str = None,
         use_threads: bool = True,
+        exclude_columns: list[str] = (),
         **insert_parquet_file_options: dict
     ) -> Generator[FileInfo, Any, None]:
         """
@@ -586,6 +595,7 @@ class Cursor(ABC):
         :param filesystem: pyarrow FileSystem object
         :param coerce_int96_timestamp_unit:
         :param use_threads:
+        :param exclude_columns: list of column names to exclude from parquet read
         :param insert_parquet_file_options: other self.insert_parquet_file options
         """
         for ofs in filesystem.get_file_info(
@@ -606,6 +616,7 @@ class Cursor(ABC):
                         filesystem=filesystem,
                         coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
                         use_threads=use_threads,
+                        exclude_columns=exclude_columns,
                         **insert_parquet_file_options
                     )
                     yield ofs
@@ -621,6 +632,7 @@ class Cursor(ABC):
                     filesystem=filesystem,
                     coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
                     use_threads=use_threads,
+                    exclude_columns=exclude_columns,
                     **insert_parquet_file_options
                 ):
                     yield _

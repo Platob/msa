@@ -536,6 +536,45 @@ class TableTests(MSSQLTestCase):
             result
         )
 
+    def test_insert_parquet_file_buffer_exclude_columns(self):
+        import pyarrow.parquet as p
+        data = pyarrow.Table.from_arrays([
+            pyarrow.array(['test', 'test']),
+            pyarrow.array([b"test", None]),
+            pyarrow.array([b"image", None]),
+            pyarrow.array(['dropped', 'dropped'])
+        ], schema=pyarrow.schema([
+            pyarrow.field("string", pyarrow.string(), nullable=False),
+            pyarrow.field("binary", pyarrow.binary(), nullable=True),
+            pyarrow.field("image", pyarrow.binary(), nullable=True),
+            pyarrow.field("dropped", pyarrow.string(), nullable=False)
+        ]))
+
+        buf = io.BytesIO()
+        p.write_table(data, buf)
+        buf.seek(0)
+
+        self.table.truncate()
+        self.table.insert_parquet_file(
+            buf,
+            exclude_columns=["image"]
+        )
+
+        result = [
+            list(_)
+            for _ in self.server.cursor().execute(
+                f"select string, binary, image from {self.PYMSA_UNITTEST}"
+            ).fetchall()
+        ]
+
+        self.assertEqual(
+            [
+                ['test', b"test", None],
+                ['test', None, None]
+            ],
+            result
+        )
+
     def test_insert_parquet_dir(self):
         import pyarrow.parquet as p
         data0 = pyarrow.Table.from_arrays([
