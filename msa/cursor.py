@@ -16,13 +16,23 @@ from typing import Optional, Generator, Any, Union
 import pyarrow.csv as pcsv
 import pyarrow.compute as pc
 from pyarrow import Schema, schema, field, RecordBatch, Table, RecordBatchReader, \
-    Array, ChunkedArray, array, TimestampType, Decimal128Type, Decimal256Type, FixedSizeBinaryType
+    Array, ChunkedArray, array, TimestampType, Decimal128Type, Decimal256Type, FixedSizeBinaryType, NativeFile
+from pyarrow.fs import FileSystem, LocalFileSystem, FileSelector, FileType, FileInfo
+try:
+    from pyarrow.parquet import ParquetFile
+except ImportError:
+    class ParquetFile:
+        def __enter__(self):
+            pass
 
-from .config import DEFAULT_BATCH_ROW_SIZE, DEFAULT_SAFE_MODE
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+from .config import DEFAULT_BATCH_ROW_SIZE, DEFAULT_SAFE_MODE, DEFAULT_ARROW_BATCH_ROW_SIZE
 from .utils import prepare_insert_batch_statement, prepare_insert_statement
 from .utils.typing import ArrowData
 from .utils.arrow import cast_arrow, FLOAT64, LARGE_BINARY, BINARY, LARGE_STRING, STRING, TIMES, \
-    TIMEUS, TIMEMS, TIMENS
+    TIMEUS, TIMEMS, TIMENS, intersect_schemas
 
 
 def binary_to_hex(scalar) -> Optional[bytes]:
@@ -457,6 +467,163 @@ class Cursor(ABC):
                     tablock=tablock,
                     commit_size=commit_size
                 )
+
+    # Parquet insert
+    def insert_parquet_file(
+        self,
+        table: Union[str, "SQLTable"],
+        source: Union[ParquetFile, str, Path, NativeFile],
+        batch_size: int = DEFAULT_ARROW_BATCH_ROW_SIZE,
+        buffer_size: int = 0,
+        cast: bool = True,
+        safe: bool = DEFAULT_SAFE_MODE,
+        commit: bool = True,
+        filesystem: FileSystem = LocalFileSystem(),
+        coerce_int96_timestamp_unit: str = None,
+        use_threads: bool = True,
+        **insert_arrow: dict
+    ):
+        """
+        Insert data from parquet file with pyarrow methods
+
+        :param table: name or SQLTable
+        :param source: pyarrow.parquet.ParquetFile, or something to build it
+            See https://arrow.apache.org/docs/python/generated/pyarrow.parquet.ParquetFile.html#pyarrow.parquet.ParquetFile
+        :param batch_size:
+        :param buffer_size:
+        :param cast:
+        :param safe:
+        :param commit:
+        :param cursor:
+        :param filesystem:
+        :param coerce_int96_timestamp_unit:
+        :param use_threads:
+        :param insert_arrow: self.insert_arrow options
+        :return: insert_arrow rtype
+        """
+        if isinstance(source, ParquetFile):
+            input_schema = intersect_schemas(source.schema_arrow, table.schema_arrow.names)
+
+            return self.insert_arrow(
+                table=table,
+                data=RecordBatchReader.from_batches(
+                    input_schema,
+                    source.iter_batches(
+                        batch_size=batch_size,
+                        columns=input_schema.names,
+                        use_threads=use_threads
+                    )
+                ),
+                cast=cast,
+                safe=safe,
+                commit=commit,
+                **insert_arrow
+            )
+        elif isinstance(source, str):
+            with filesystem.open_input_file(source) as f:
+                return self.insert_parquet_file(
+                    table=table,
+                    source=ParquetFile(
+                        f,
+                        buffer_size=buffer_size,
+                        coerce_int96_timestamp_unit=coerce_int96_timestamp_unit
+                    ),
+                    batch_size=batch_size,
+                    buffer_size=buffer_size,
+                    cast=cast,
+                    safe=safe,
+                    commit=commit,
+                    filesystem=filesystem,
+                    use_threads=use_threads,
+                    **insert_arrow
+                )
+        else:
+            return self.insert_parquet_file(
+                table=table,
+                source=ParquetFile(
+                    source,
+                    buffer_size=buffer_size,
+                    coerce_int96_timestamp_unit=coerce_int96_timestamp_unit
+                ),
+                batch_size=batch_size,
+                buffer_size=buffer_size,
+                cast=cast,
+                safe=safe,
+                commit=commit,
+                filesystem=filesystem,
+                use_threads=use_threads,
+                **insert_arrow
+            )
+
+    def insert_parquet_dir(
+        self,
+        table: Union[str, "SQLTable"],
+        base_dir: str,
+        recursive: bool = False,
+        allow_not_found: bool = False,
+        batch_size: int = DEFAULT_ARROW_BATCH_ROW_SIZE,
+        buffer_size: int = 0,
+        cast: bool = True,
+        safe: bool = DEFAULT_SAFE_MODE,
+        commit: bool = True,
+        filesystem: FileSystem = LocalFileSystem(),
+        coerce_int96_timestamp_unit: str = None,
+        use_threads: bool = True,
+        **insert_parquet_file_options: dict
+    ) -> Generator[FileInfo, Any, None]:
+        """
+        Insert data from parquet iterating over files, sub dir files with pyarrow methods
+
+        :param table: name or SQLTable
+        :param base_dir:
+        :param recursive: recursive fetch files, set True to fetch all files in sub dirs
+        :param allow_not_found:
+        :param batch_size: number of rows for batch
+        :param buffer_size:
+        :param cast:
+        :param safe:
+        :param commit:
+        :param filesystem: pyarrow FileSystem object
+        :param coerce_int96_timestamp_unit:
+        :param use_threads:
+        :param insert_parquet_file_options: other self.insert_parquet_file options
+        """
+        for ofs in filesystem.get_file_info(
+            FileSelector(base_dir, allow_not_found=allow_not_found, recursive=recursive)
+        ):
+            # <FileInfo for 'path': type=FileType.Directory>
+            # or <FileInfo for 'path': type=FileType.File, size=0>
+            if ofs.type == FileType.File:
+                if ofs.size > 0:
+                    self.insert_parquet_file(
+                        table=table,
+                        source=ofs.path,
+                        batch_size=batch_size,
+                        buffer_size=buffer_size,
+                        cast=cast,
+                        safe=safe,
+                        commit=commit,
+                        filesystem=filesystem,
+                        coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
+                        use_threads=use_threads,
+                        **insert_parquet_file_options
+                    )
+                    yield ofs
+            elif ofs.type == FileType.Directory:
+                for _ in self.insert_parquet_dir(
+                    table=table,
+                    base_dir=ofs.path,
+                    batch_size=batch_size,
+                    buffer_size=buffer_size,
+                    cast=cast,
+                    safe=safe,
+                    commit=commit,
+                    filesystem=filesystem,
+                    coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
+                    use_threads=use_threads,
+                    **insert_parquet_file_options
+                ):
+                    yield _
 
     # config statements
     def set_identity_insert(self, table: "msa.table.SQLTable", on: bool = True):

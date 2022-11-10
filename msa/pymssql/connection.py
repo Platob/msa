@@ -24,7 +24,8 @@ class PyMSSQLConnection(Abstract):
         self.raw.rollback()
 
     def cursor(self, *args, **kwargs) -> PyMSSQLCursor:
-        return PyMSSQLCursor(
+        # reconnect if closed
+        return self.server.connect().cursor(*args, **kwargs) if self.closed else PyMSSQLCursor(
             self,
             self.raw.cursor(*args, **kwargs)
         )

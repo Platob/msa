@@ -19,7 +19,7 @@ except ImportError:
         def __exit__(self, exc_type, exc_val, exc_tb):
             pass
 
-from .config import DEFAULT_SAFE_MODE
+from .config import DEFAULT_SAFE_MODE, DEFAULT_ARROW_BATCH_ROW_SIZE
 from .cursor import Cursor
 from .utils import mssql_column_to_pyarrow_field, prepare_insert_statement, prepare_insert_batch_statement
 from .utils.arrow import intersect_schemas
@@ -88,14 +88,12 @@ class SQLTable:
 
     @property
     def connection(self):
-        if self.__connection.closed:
-            self.__connection = self.__connection.server.connect()
-        return self.__connection
+        return self._connection
 
     @connection.setter
     def connection(self, connection):
         from .connection import Connection
-        self.__connection: Connection = connection
+        self._connection: Connection = connection
 
     @property
     def schema_arrow(self) -> Schema:
@@ -369,7 +367,7 @@ and index_id > 0""" % self.object_id).fetchall()
     def insert_parquet_file(
         self,
         source: Union[ParquetFile, str, pathlib.Path, NativeFile],
-        batch_size: int = 65536,
+        batch_size: int = DEFAULT_ARROW_BATCH_ROW_SIZE,
         buffer_size: int = 0,
         cast: bool = True,
         safe: bool = DEFAULT_SAFE_MODE,
@@ -397,56 +395,32 @@ and index_id > 0""" % self.object_id).fetchall()
         :param insert_arrow: self.insert_arrow options
         :return: insert_arrow rtype
         """
-        if isinstance(source, ParquetFile):
-            input_schema = intersect_schemas(source.schema_arrow, self.schema_arrow.names)
-
-            return self.insert_arrow(
-                RecordBatchReader.from_batches(
-                    input_schema,
-                    source.iter_batches(
-                        batch_size=batch_size,
-                        columns=input_schema.names,
-                        use_threads=use_threads
-                    )
-                ),
-                cast=cast,
-                safe=safe,
-                commit=commit,
-                cursor=cursor,
-                **insert_arrow
-            )
-        elif isinstance(source, str):
-            with filesystem.open_input_file(source) as f:
-                return self.insert_parquet_file(
-                    ParquetFile(
-                        f,
-                        buffer_size=buffer_size,
-                        coerce_int96_timestamp_unit=coerce_int96_timestamp_unit
-                    ),
+        if cursor is None:
+            with self.connection.cursor() as c:
+                c.insert_parquet_file(
+                    self,
+                    source=source,
                     batch_size=batch_size,
                     buffer_size=buffer_size,
                     cast=cast,
                     safe=safe,
                     commit=commit,
-                    cursor=cursor,
                     filesystem=filesystem,
+                    coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
                     use_threads=use_threads,
                     **insert_arrow
                 )
         else:
-            return self.insert_parquet_file(
-                ParquetFile(
-                    source,
-                    buffer_size=buffer_size,
-                    coerce_int96_timestamp_unit=coerce_int96_timestamp_unit
-                ),
+            cursor.insert_parquet_file(
+                self,
+                source=source,
                 batch_size=batch_size,
                 buffer_size=buffer_size,
                 cast=cast,
                 safe=safe,
                 commit=commit,
-                cursor=cursor,
                 filesystem=filesystem,
+                coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
                 use_threads=use_threads,
                 **insert_arrow
             )
@@ -456,7 +430,7 @@ and index_id > 0""" % self.object_id).fetchall()
         base_dir: str,
         recursive: bool = False,
         allow_not_found: bool = False,
-        batch_size: int = 65536,
+        batch_size: int = DEFAULT_ARROW_BATCH_ROW_SIZE,
         buffer_size: int = 0,
         cast: bool = True,
         safe: bool = DEFAULT_SAFE_MODE,
@@ -482,7 +456,7 @@ and index_id > 0""" % self.object_id).fetchall()
         :param filesystem: pyarrow FileSystem object
         :param coerce_int96_timestamp_unit:
         :param use_threads:
-        :param insert_parquet_file_options: other self.insert_parquet_file options
+        :param insert_parquet_file_options: other cursor.insert_parquet_file options
         """
         for ofs in filesystem.get_file_info(
             FileSelector(base_dir, allow_not_found=allow_not_found, recursive=recursive)
