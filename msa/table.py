@@ -2,9 +2,9 @@ __all__ = ["SQLTable", "SQLView", "SQLIndex"]
 
 import pathlib
 from pathlib import Path
-from typing import Optional, Any, Union, Iterable, Generator
+from typing import Optional, Any, Union, Generator
 
-from pyarrow import Schema, schema, Field, RecordBatch, Table, RecordBatchReader, NativeFile
+from pyarrow import Schema, schema, Field, NativeFile
 from pyarrow.fs import FileSystem, LocalFileSystem, FileSelector, FileType, FileInfo
 
 from .utils.typing import ArrowData
@@ -21,8 +21,7 @@ except ImportError:
 
 from .config import DEFAULT_SAFE_MODE, DEFAULT_ARROW_BATCH_ROW_SIZE
 from .cursor import Cursor
-from .utils import mssql_column_to_pyarrow_field, prepare_insert_statement, prepare_insert_batch_statement
-from .utils.arrow import intersect_schemas
+from .utils import mssql_column_to_pyarrow_field
 
 TABLE_TYPE_COLUMNS_STATEMENT = {
     "BASE TABLE": """select col.name as name,

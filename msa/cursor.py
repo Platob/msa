@@ -190,7 +190,7 @@ class Cursor(ABC):
     # column oriented
     def fetch_arrow_batches(
         self,
-        n: int = DEFAULT_BATCH_ROW_SIZE,
+        n: int = DEFAULT_ARROW_BATCH_ROW_SIZE,
         safe: bool = DEFAULT_SAFE_MODE
     ) -> Generator[RecordBatch, None, None]:
         empty = True
@@ -216,14 +216,14 @@ class Cursor(ABC):
 
     def fetch_arrow(
         self,
-        n: int = DEFAULT_BATCH_ROW_SIZE,
+        n: int = DEFAULT_ARROW_BATCH_ROW_SIZE,
         safe: bool = DEFAULT_SAFE_MODE
     ) -> Table:
         return Table.from_batches(self.fetch_arrow_batches(n, safe), schema=self.schema_arrow)
 
     def reader(
         self,
-        n: int = DEFAULT_BATCH_ROW_SIZE,
+        n: int = DEFAULT_ARROW_BATCH_ROW_SIZE,
         safe: bool = DEFAULT_SAFE_MODE
     ) -> RecordBatchReader:
         return RecordBatchReader.from_batches(self.schema_arrow, self.fetch_arrow_batches(n, safe))

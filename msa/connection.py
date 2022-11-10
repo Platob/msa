@@ -3,8 +3,8 @@ __all__ = ["Connection"]
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from msa.cursor import Cursor
-from msa.table import SQLTable, SQLView
+from .cursor import Cursor
+from .table import SQLTable, SQLView
 
 
 class Connection(ABC):
