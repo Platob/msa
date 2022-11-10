@@ -26,7 +26,8 @@ except ImportError:
 from .config import DEFAULT_SAFE_MODE
 from .cursor import Cursor
 from .utils import mssql_column_to_pyarrow_field, prepare_insert_statement, prepare_insert_batch_statement
-from .utils.arrow import cast_arrow, FLOAT64, LARGE_BINARY, BINARY, LARGE_STRING, STRING, intersect_schemas
+from .utils.arrow import cast_arrow, FLOAT64, LARGE_BINARY, BINARY, LARGE_STRING, STRING, intersect_schemas, TIMES, \
+    TIMEUS, TIMEMS, TIMENS
 
 
 def binary_to_hex(scalar) -> Optional[bytes]:
@@ -36,8 +37,10 @@ def binary_to_hex(scalar) -> Optional[bytes]:
 
 INSERT_BATCH = {
     TimestampType: lambda arr: pc.utf8_slice_codeunits(arr.cast(STRING), 0, 27),
-    Time32Type: lambda arr: arr.cast(STRING),
-    Time64Type: lambda arr: arr.cast(STRING)
+    TIMES: lambda arr: arr.cast(STRING),
+    TIMEMS: lambda arr: arr.cast(STRING),
+    TIMEUS: lambda arr: arr.cast(STRING),
+    TIMENS: lambda arr: pc.utf8_slice_codeunits(arr.cast(STRING), 0, 16)
 }
 
 CSV_DTYPES = {
@@ -68,9 +71,11 @@ def prepare_bulk_csv_batch(data: Union[RecordBatch, Table]) -> Union[RecordBatch
 
 
 def prepare_insert_array(arr: Union[Array, ChunkedArray]):
+    print(arr.type)
     if arr.type in INSERT_BATCH:
         return INSERT_BATCH[arr.type](arr)
     elif arr.type.__class__ in INSERT_BATCH:
+        print(arr.type.__class__)
         return INSERT_BATCH[arr.type.__class__](arr)
     return arr
 

@@ -257,3 +257,11 @@ class ArrowUtilsTests(MSSQLTestCase):
             pyarrow.array(["2017-03-16 10:35:18.1234568"]),
             prepare_insert_array(data)
         )
+
+    def test_prepare_insert_array_time(self):
+        data = pyarrow.array([123456789], pyarrow.time64("ns"))
+
+        self.assertEqual(
+            pyarrow.array(["00:00:00.1234567"]),
+            prepare_insert_array(data)
+        )
