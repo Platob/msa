@@ -557,7 +557,7 @@ class TableTests(MSSQLTestCase):
         self.table.truncate()
         self.table.insert_parquet_file(
             buf,
-            exclude_columns=["image"]
+            exclude_columns=["Image"]
         )
 
         result = [

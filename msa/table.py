@@ -376,6 +376,7 @@ and index_id > 0""" % self.object_id).fetchall()
         filesystem: FileSystem = LocalFileSystem(),
         coerce_int96_timestamp_unit: str = None,
         use_threads: bool = True,
+        exclude_columns: list[str] = (),
         **insert_arrow: dict
     ):
         """
@@ -392,6 +393,7 @@ and index_id > 0""" % self.object_id).fetchall()
         :param filesystem:
         :param coerce_int96_timestamp_unit:
         :param use_threads:
+        :param exclude_columns: exclude column names on parquet read
         :param insert_arrow: self.insert_arrow options
         :return: insert_arrow rtype
         """
@@ -408,6 +410,7 @@ and index_id > 0""" % self.object_id).fetchall()
                     filesystem=filesystem,
                     coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
                     use_threads=use_threads,
+                    exclude_columns=exclude_columns,
                     **insert_arrow
                 )
         else:
@@ -422,6 +425,7 @@ and index_id > 0""" % self.object_id).fetchall()
                 filesystem=filesystem,
                 coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
                 use_threads=use_threads,
+                exclude_columns=exclude_columns,
                 **insert_arrow
             )
 

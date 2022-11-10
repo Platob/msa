@@ -32,7 +32,7 @@ from .config import DEFAULT_BATCH_ROW_SIZE, DEFAULT_SAFE_MODE, DEFAULT_ARROW_BAT
 from .utils import prepare_insert_batch_statement, prepare_insert_statement
 from .utils.typing import ArrowData
 from .utils.arrow import cast_arrow, FLOAT64, LARGE_BINARY, BINARY, LARGE_STRING, STRING, TIMES, \
-    TIMEUS, TIMEMS, TIMENS, intersect_schemas
+    TIMEUS, TIMEMS, TIMENS, intersect_schemas, get_field
 
 
 def binary_to_hex(scalar) -> Optional[bytes]:
@@ -503,12 +503,15 @@ class Cursor(ABC):
         :return: insert_arrow rtype
         """
         if isinstance(source, ParquetFile):
-            input_schema = intersect_schemas(
-                schema(
-                    [f for f in source.schema_arrow if f.name not in exclude_columns], source.schema_arrow.metadata
-                ) if exclude_columns else source.schema_arrow,
-                table.schema_arrow.names
-            )
+            if exclude_columns:
+                exclude_columns = [get_field(source.schema_arrow, _).name for _ in exclude_columns]
+                input_schema = schema(
+                    [f for f in source.schema_arrow if f.name not in exclude_columns],
+                    source.schema_arrow.metadata
+                )
+            else:
+                input_schema = source.schema_arrow
+            input_schema = intersect_schemas(input_schema, table.schema_arrow.names)
 
             return self.insert_arrow(
                 table=table,
