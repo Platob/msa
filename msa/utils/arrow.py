@@ -1,9 +1,11 @@
 __all__ = [
     "cast_batch", "cast_array", "cast_arrow",
+    "intersect_schemas",
     "timestamp_to_timestamp",
     "FLOAT64",
     "LARGE_BINARY", "BINARY",
-    "LARGE_STRING", "STRING"
+    "LARGE_STRING", "STRING",
+    "TIMES", "TIMEMS", "TIMEUS", "TIMENS"
 ]
 
 import datetime
