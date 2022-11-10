@@ -20,14 +20,29 @@ class PyODBCCursor(AbstractCursor):
             )
         return self.__schema
 
-    def __init__(self, connection: "PyODBCConnection", raw: Cursor):
+    def __init__(
+        self,
+        connection: "PyODBCConnection",
+        raw: Cursor,
+        fast_executemany: bool = True
+    ):
         super(PyODBCCursor, self).__init__(connection=connection)
         self.raw = raw
+
+        self.raw.fast_executemany = fast_executemany
 
         self.__schema = None
 
     def __del__(self):
         self.close()
+
+    @property
+    def fast_executemany(self):
+        return self.raw.fast_executemany
+
+    @fast_executemany.setter
+    def fast_executemany(self, fast_executemany: bool):
+        self.raw.fast_executemany = fast_executemany
 
     def close(self) -> None:
         if not self.closed:

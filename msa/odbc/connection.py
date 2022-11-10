@@ -58,8 +58,9 @@ class PyODBCConnection(Abstract):
     def rollback(self) -> None:
         self.raw.rollback()
 
-    def cursor(self, *args, **kwargs) -> PyODBCCursor:
+    def cursor(self, fast_executemany: bool = True, *args, **kwargs) -> PyODBCCursor:
         return PyODBCCursor(
             self,
-            self.raw.cursor(*args, **kwargs)
+            self.raw.cursor(*args, **kwargs),
+            fast_executemany=fast_executemany
         )

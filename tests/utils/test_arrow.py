@@ -4,6 +4,7 @@ import numpy
 import pyarrow
 from pyarrow import RecordBatch, array, Table
 
+from msa.table import prepare_insert_array
 from msa.utils.arrow import cast_batch, cast_array, timestamp_to_timestamp
 from tests import MSSQLTestCase
 
@@ -247,4 +248,12 @@ class ArrowUtilsTests(MSSQLTestCase):
         self.assertEqual(
             array([datetime.time(12, 10, 10, 123000)]).cast(pyarrow.time32("ms")),
             cast_array(pyarrow.array(["12:10:10.123456"]), pyarrow.time32("ms"), False)
+        )
+
+    def test_prepare_insert_array_timestamp(self):
+        data = pyarrow.array([numpy.datetime64("2017-03-16T10:35:18.123456800")])
+
+        self.assertEqual(
+            pyarrow.array(["2017-03-16 10:35:18.1234568"]),
+            prepare_insert_array(data)
         )

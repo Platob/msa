@@ -119,7 +119,6 @@ class TableTests(MSSQLTestCase):
             data,
             ["string", "int", "binary", "datetime2"],
             tablock=False,
-            fast_executemany=True,
             commit_size=1000  # max 1000
         )
 
@@ -138,7 +137,6 @@ class TableTests(MSSQLTestCase):
             data,
             ["string", "int", "binary"],
             tablock=False,
-            fast_executemany=True,
             commit_size=10  # max 1000
         )
 
@@ -257,8 +255,8 @@ class TableTests(MSSQLTestCase):
             pyarrow.array([1, None]),
             pyarrow.array(['test', 'test']),
             pyarrow.array([datetime.date(2022, 10, 20), None]),
-            pyarrow.array([None, None]),
-            pyarrow.array([None, None]),
+            pyarrow.array([10.3, None]),
+            pyarrow.array([10.5, None]),
             pyarrow.array([datetime.datetime(2017, 3, 16, 10, 35, 18, 123000), None])
             .cast(pyarrow.timestamp("ms"), False),
             pyarrow.array([numpy.datetime64('2017-03-16T10:35:18.123456800'), None]),
@@ -287,7 +285,7 @@ class TableTests(MSSQLTestCase):
         self.assertEqual(
             [
                 [
-                    1, 'test', datetime.date(2022, 10, 20), None, None,
+                    1, 'test', datetime.date(2022, 10, 20), 10.3, 10.5,
                     datetime.datetime(2017, 3, 16, 10, 35, 18, 123000),
                     numpy.datetime64('2017-03-16T10:35:18.123456800'), b'test'
                 ],
@@ -295,7 +293,7 @@ class TableTests(MSSQLTestCase):
                     None, 'test', None, None, None, None, None, None
                 ],
                 [
-                    1, 'test', datetime.date(2022, 10, 20), None, None,
+                    1, 'test', datetime.date(2022, 10, 20), 10.3, 10.5,
                     datetime.datetime(2017, 3, 16, 10, 35, 18, 123000),
                     numpy.datetime64('2017-03-16T10:35:18.123456800'), b'test'
                 ],

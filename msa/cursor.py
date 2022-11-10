@@ -1,14 +1,33 @@
 __all__ = ["Cursor"]
 
 from abc import ABC, abstractmethod
-from typing import Optional, Generator, Any
+from typing import Optional, Generator, Any, Union
 
 from pyarrow import Schema, RecordBatch, Table, RecordBatchReader, array
 
 from msa.config import DEFAULT_BATCH_ROW_SIZE, DEFAULT_SAFE_MODE
+from msa.utils import prepare_insert_batch_statement, prepare_insert_statement
+
+
+def linearize(it):
+    for _0 in it:
+        for _1 in _0:
+            yield _1
+
+
+def concat_rows(rows, batch_size: int = 1):
+    while len(rows) > batch_size:
+        resized, rows = rows[:batch_size], rows[batch_size:]
+        yield list(linearize(resized))
+    if len(rows) > 0:
+        yield list(linearize(rows))
 
 
 class Cursor(ABC):
+
+    @staticmethod
+    def safe_commit_size(commit_size: int, columns_len: int):
+        return int(min(columns_len * commit_size, 2099) / columns_len)
 
     def __init__(self, connection: "Connection"):
         self.closed = False
@@ -41,6 +60,14 @@ class Cursor(ABC):
 
     def rollback(self):
         self.connection.rollback()
+
+    @property
+    def fast_executemany(self):
+        return False
+
+    @fast_executemany.setter
+    def fast_executemany(self, fast_executemany: bool):
+        pass
 
     @abstractmethod
     def execute(self, sql: str, *args, **kwargs) -> "Cursor":
@@ -117,6 +144,64 @@ class Cursor(ABC):
         safe: bool = DEFAULT_SAFE_MODE
     ) -> RecordBatchReader:
         return RecordBatchReader.from_batches(self.schema_arrow, self.fetch_arrow_batches(n, safe))
+
+    # Inserts
+    # INSERT INTO VALUES
+    def insert_pylist(
+        self,
+        table: Union[str, "SQLTable"],
+        rows: list[Union[list[Any], tuple[Any]]],
+        columns: list[str],
+        stmt: str = "",
+        commit: bool = True,
+        tablock: bool = False,
+        commit_size: int = 1
+    ):
+        """
+        Insert values like list[list[Any]]
+
+        :param table: table name or msq.SQLTable
+        :param rows: row batch: list[list[Any]]
+        :param columns: column names
+        :param stmt:
+        :param commit: commit at the end
+        :param tablock: see self.prepare_insert_statement or self.prepare_insert_batch_statement
+        :param commit_size: number of row batch in insert values
+            Must be 0 > batch_size > 1001 and len(columns) * commit_size <= 2100
+        :return: None
+        """
+        if rows:
+            if commit_size > 1:
+                # https://stackoverflow.com/questions/845931/maximum-number-of-parameters-in-sql-query/845972#845972
+                # Maximum < 2100 parameters
+                commit_size = self.safe_commit_size(commit_size, len(columns))
+
+                stmt = stmt if stmt else prepare_insert_batch_statement(
+                    table, columns, tablock=tablock, commit_size=commit_size
+                )
+
+                rows: list[list] = list(concat_rows(rows, commit_size))
+
+                if len(rows) == 1:
+                    last = rows[0]
+                else:
+                    last = rows[-1]
+                    self.executemany(stmt, rows[:-1])
+
+                self.executemany(
+                    prepare_insert_batch_statement(
+                        table, columns, tablock=tablock, commit_size=int(len(last) / len(columns))
+                    ),
+                    [last]
+                )
+            else:
+                self.executemany(
+                    stmt if stmt else prepare_insert_statement(table, columns, tablock=tablock),
+                    rows
+                )
+
+            if commit:
+                self.commit()
 
     # config statements
     def set_identity_insert(self, table: "msa.table.SQLTable", on: bool = True):

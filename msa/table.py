@@ -10,7 +10,7 @@ from pyarrow import Schema, schema, Field, field, RecordBatch, Table, RecordBatc
     Array, ChunkedArray, array, TimestampType, Time64Type, Decimal128Type, Decimal256Type, Time32Type, \
     FixedSizeBinaryType, NativeFile
 from pyarrow.fs import FileSystem, LocalFileSystem, FileSelector, FileType, FileInfo
-
+import pyarrow.compute as pc
 import pyarrow.csv as pcsv
 
 try:
@@ -25,7 +25,7 @@ except ImportError:
 
 from .config import DEFAULT_SAFE_MODE
 from .cursor import Cursor
-from .utils import mssql_column_to_pyarrow_field
+from .utils import mssql_column_to_pyarrow_field, prepare_insert_statement, prepare_insert_batch_statement
 from .utils.arrow import cast_arrow, FLOAT64, LARGE_BINARY, BINARY, LARGE_STRING, STRING, intersect_schemas
 
 
@@ -35,7 +35,7 @@ def binary_to_hex(scalar) -> Optional[bytes]:
 
 
 INSERT_BATCH = {
-    TimestampType: lambda arr: arr.cast(STRING),
+    TimestampType: lambda arr: pc.utf8_slice_codeunits(arr.cast(STRING), 0, 27),
     Time32Type: lambda arr: arr.cast(STRING),
     Time64Type: lambda arr: arr.cast(STRING)
 }
@@ -84,20 +84,6 @@ def prepare_insert_batch(data: Union[RecordBatch, Table]) -> Union[RecordBatch, 
     ]))
 
 
-def linearize(it):
-    for _0 in it:
-        for _1 in _0:
-            yield _1
-
-
-def concat_rows(rows, batch_size: int = 1):
-    while len(rows) > batch_size:
-        resized, rows = rows[:batch_size], rows[batch_size:]
-        yield list(linearize(resized))
-    if len(rows) > 0:
-        yield list(linearize(rows))
-
-
 TABLE_TYPE_COLUMNS_STATEMENT = {
     "BASE TABLE": """select col.name as name,
     type_name(user_type_id) as dtype, col.max_length as max_length, col.precision as precision, col.scale as scale,
@@ -114,10 +100,6 @@ join sys.views v on v.object_id = %s and v.object_id = c.object_id"""
 
 
 class SQLTable:
-
-    @staticmethod
-    def safe_commit_size(commit_size: int, columns_len: int):
-        return int(min(columns_len * commit_size, 2099) / columns_len)
 
     def __init__(
         self,
@@ -256,12 +238,7 @@ and index_id > 0""" % self.object_id).fetchall()
         columns: list[str],
         tablock: bool = False
     ):
-        return "INSERT INTO %s%s([%s]) VALUES (%s)" % (
-            self.full_name,
-            "WITH(TABLOCK)" if tablock else "",
-            "],[".join(columns),
-            ",".join(("?" for _ in range(len(columns))))
-        )
+        return prepare_insert_statement(self.full_name, columns, tablock)
 
     def prepare_insert_batch_statement(
         self,
@@ -269,19 +246,12 @@ and index_id > 0""" % self.object_id).fetchall()
         tablock: bool = False,
         commit_size: int = 1
     ):
-        values = "(%s)" % ",".join(("?" for _ in range(len(columns))))
-        return "INSERT INTO %s%s([%s]) VALUES %s" % (
-            self.full_name,
-            "WITH(TABLOCK)" if tablock else "",
-            "],[".join(columns),
-            ",".join((values for _ in range(commit_size)))
-        )
+        return prepare_insert_batch_statement(self.full_name, columns, tablock, commit_size)
 
     def insert_pylist(
         self,
         rows: list[Union[list[Any], tuple[Any]]],
         columns: list[str],
-        fast_executemany: bool = True,
         stmt: str = "",
         commit: bool = True,
         cursor: Optional[Cursor] = None,
@@ -293,7 +263,6 @@ and index_id > 0""" % self.object_id).fetchall()
 
         :param rows: row batch: list[list[Any]]
         :param columns: column names
-        :param fast_executemany: pyodbc.Cursor.fast_executemany, default = True
         :param stmt:
         :param commit: commit at the end
         :param cursor: existing connection.Cursor, default will create new one
@@ -302,56 +271,27 @@ and index_id > 0""" % self.object_id).fetchall()
             Must be 0 > batch_size > 1001 and len(columns) * commit_size <= 2100
         :return: None
         """
-        if rows:
-            if cursor is None:
-                with self.connection.cursor() as c:
-                    return self.insert_pylist(
-                        rows,
-                        columns,
-                        fast_executemany,
-                        stmt,
-                        commit=commit,
-                        cursor=c,
-                        tablock=tablock,
-                        commit_size=commit_size
-                    )
-            else:
-                try:
-                    cursor.fast_executemany = fast_executemany
-                except AttributeError:
-                    pass
-
-                if commit_size > 1:
-                    # https://stackoverflow.com/questions/845931/maximum-number-of-parameters-in-sql-query/845972#845972
-                    # Maximum < 2100 parameters
-                    commit_size = self.safe_commit_size(commit_size, len(columns))
-
-                    stmt = stmt if stmt else self.prepare_insert_batch_statement(
-                        columns, tablock=tablock, commit_size=commit_size
-                    )
-
-                    rows: list[list] = list(concat_rows(rows, commit_size))
-
-                    if len(rows) == 1:
-                        last = rows[0]
-                    else:
-                        last = rows[-1]
-                        cursor.executemany(stmt, rows[:-1])
-
-                    cursor.executemany(
-                        self.prepare_insert_batch_statement(
-                            columns, tablock=tablock, commit_size=int(len(last) / len(columns))
-                        ),
-                        [last]
-                    )
-                else:
-                    cursor.executemany(
-                        stmt if stmt else self.prepare_insert_statement(columns, tablock=tablock),
-                        rows
-                    )
-
-                if commit:
-                    cursor.commit()
+        if cursor is None:
+            with self.connection.cursor() as c:
+                return self.insert_pylist(
+                    rows,
+                    columns,
+                    stmt,
+                    commit=commit,
+                    cursor=c,
+                    tablock=tablock,
+                    commit_size=commit_size
+                )
+        else:
+            return cursor.insert_pylist(
+                self.full_name,
+                rows,
+                columns,
+                stmt,
+                commit=commit,
+                tablock=tablock,
+                commit_size=commit_size
+            )
 
     def insert_arrow(
         self,
@@ -361,21 +301,20 @@ and index_id > 0""" % self.object_id).fetchall()
         ],
         cast: bool = True,
         safe: bool = DEFAULT_SAFE_MODE,
-        fast_executemany: bool = True,
         stmt: str = "",
         commit: bool = True,
         bulk: bool = False,
         cursor: Optional[Cursor] = None,
         tablock: bool = False,
         commit_size: int = 1,
-        bulk_options: dict[str, Union[str, int, bool]] = {}
+        **insert_options: dict[str, Union[str, int, bool]]
     ):
         if bulk:
             return self.bulk_insert_arrow(
                 data, None, cast, safe,
                 cursor=cursor,
                 tablock=tablock,
-                **bulk_options
+                **insert_options
             )
         if cast:
             data = cast_arrow(data, self.schema_arrow, safe, fill_empty=False, drop=True)
@@ -386,50 +325,47 @@ and index_id > 0""" % self.object_id).fetchall()
                     data,
                     cast=cast,
                     safe=safe,
-                    fast_executemany=fast_executemany,
                     stmt=stmt,
                     commit=commit,
                     bulk=bulk,
                     cursor=cursor,
                     tablock=tablock,
-                    commit_size=commit_size
+                    commit_size=commit_size,
+                    **insert_options
                 )
         else:
             if isinstance(data, (RecordBatch, Table)):
-                return self.insert_pylist(
+                return cursor.insert_pylist(
+                    self.full_name,
                     [tuple(row.values()) for row in prepare_insert_batch(data).to_pylist()],
                     data.schema.names,
-                    fast_executemany=fast_executemany,
                     stmt=stmt,
                     commit=commit,
-                    cursor=cursor,
                     tablock=tablock,
                     commit_size=commit_size
                 )
             elif isinstance(data, RecordBatchReader):
-                commit_size = self.safe_commit_size(commit_size, len(data.schema.names))
+                commit_size = cursor.safe_commit_size(commit_size, len(data.schema.names))
                 stmt = self.prepare_insert_batch_statement(data.schema.names, tablock=tablock, commit_size=commit_size)
 
                 for batch in data:
-                    self.insert_pylist(
+                    cursor.insert_pylist(
+                        self.full_name,
                         [tuple(row.values()) for row in prepare_insert_batch(batch).to_pylist()],
                         batch.schema.names,
-                        fast_executemany=fast_executemany,
                         stmt=stmt,
                         commit=commit,
-                        cursor=cursor,
                         tablock=tablock,
                         commit_size=commit_size
                     )
             else:
                 for batch in data:
-                    self.insert_pylist(
+                    cursor.insert_pylist(
+                        self.full_name,
                         [tuple(row.values()) for row in prepare_insert_batch(batch).to_pylist()],
                         batch.schema.names,
-                        fast_executemany=fast_executemany,
                         stmt=stmt,
                         commit=commit,
-                        cursor=cursor,
                         tablock=tablock,
                         commit_size=commit_size
                     )
