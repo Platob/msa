@@ -122,6 +122,9 @@ class Cursor(ABC):
     def set_identity_insert(self, table: "msa.table.SQLTable", on: bool = True):
         self.execute("SET IDENTITY_INSERT %s %s" % (table.full_name, "ON" if on else "OFF"))
 
+    def set_nocount(self, on: bool = True):
+        self.execute("SET NOCOUNT %s" % 'ON' if on else 'OFF')
+
     def create_table_index(
         self,
         table: "msa.table.SQLTable",
