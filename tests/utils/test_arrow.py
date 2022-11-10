@@ -4,7 +4,7 @@ import numpy
 import pyarrow
 from pyarrow import RecordBatch, array, Table
 
-from msa.table import prepare_insert_array
+from msa.cursor import prepare_insert_array
 from msa.utils.arrow import cast_batch, cast_array, timestamp_to_timestamp
 from tests import MSSQLTestCase
 

@@ -1,12 +1,85 @@
-__all__ = ["Cursor"]
+__all__ = [
+    "Cursor",
+    "prepare_insert_array",
+    "prepare_insert_batch",
+    "prepare_bulk_csv_array",
+    "prepare_bulk_csv_batch"
+]
 
+
+import os
+import tempfile
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Optional, Generator, Any, Union
 
-from pyarrow import Schema, RecordBatch, Table, RecordBatchReader, array
+import pyarrow.csv as pcsv
+import pyarrow.compute as pc
+from pyarrow import Schema, schema, field, RecordBatch, Table, RecordBatchReader, \
+    Array, ChunkedArray, array, TimestampType, Decimal128Type, Decimal256Type, FixedSizeBinaryType
 
-from msa.config import DEFAULT_BATCH_ROW_SIZE, DEFAULT_SAFE_MODE
-from msa.utils import prepare_insert_batch_statement, prepare_insert_statement
+from .config import DEFAULT_BATCH_ROW_SIZE, DEFAULT_SAFE_MODE
+from .utils import prepare_insert_batch_statement, prepare_insert_statement
+from .utils.typing import ArrowData
+from .utils.arrow import cast_arrow, FLOAT64, LARGE_BINARY, BINARY, LARGE_STRING, STRING, TIMES, \
+    TIMEUS, TIMEMS, TIMENS
+
+
+def binary_to_hex(scalar) -> Optional[bytes]:
+    pyscalar: bytes = scalar.as_py()
+    return pyscalar if pyscalar is None else pyscalar.hex()
+
+
+INSERT_BATCH = {
+    TimestampType: lambda arr: pc.utf8_slice_codeunits(arr.cast(STRING), 0, 27),
+    TIMES: lambda arr: arr.cast(STRING),
+    TIMEMS: lambda arr: arr.cast(STRING),
+    TIMEUS: lambda arr: arr.cast(STRING),
+    TIMENS: lambda arr: pc.utf8_slice_codeunits(arr.cast(STRING), 0, 16)
+}
+
+CSV_DTYPES = {
+    Decimal128Type: lambda arr: arr.cast(FLOAT64),
+    Decimal256Type: lambda arr: arr.cast(FLOAT64),
+    BINARY: lambda arr: array([binary_to_hex(_) for _ in arr], STRING),
+    FixedSizeBinaryType: lambda arr: array([binary_to_hex(_) for _ in arr], STRING),
+    LARGE_BINARY: lambda arr: array([binary_to_hex(_) for _ in arr], LARGE_STRING),
+    **INSERT_BATCH
+}
+
+
+def prepare_bulk_csv_array(arr: Union[Array, ChunkedArray]):
+    if arr.type in CSV_DTYPES:
+        return CSV_DTYPES[arr.type](arr)
+    elif arr.type.__class__ in CSV_DTYPES:
+        return CSV_DTYPES[arr.type.__class__](arr)
+    return arr
+
+
+def prepare_bulk_csv_batch(data: Union[RecordBatch, Table]) -> Union[RecordBatch, Table]:
+    arrays = [prepare_bulk_csv_array(arr) for arr in data]
+
+    return data.__class__.from_arrays(arrays, schema=schema([
+        field(data.schema[i].name, arrays[i].type, data.schema[i].nullable)
+        for i in range(len(data.schema))
+    ]))
+
+
+def prepare_insert_array(arr: Union[Array, ChunkedArray]):
+    if arr.type in INSERT_BATCH:
+        return INSERT_BATCH[arr.type](arr)
+    elif arr.type.__class__ in INSERT_BATCH:
+        return INSERT_BATCH[arr.type.__class__](arr)
+    return arr
+
+
+def prepare_insert_batch(data: Union[RecordBatch, Table]) -> Union[RecordBatch, Table]:
+    arrays = [prepare_insert_array(arr) for arr in data]
+
+    return data.__class__.from_arrays(arrays, schema=schema([
+        field(data.schema[i].name, arrays[i].type, data.schema[i].nullable)
+        for i in range(len(data.schema))
+    ]))
 
 
 def linearize(it):
@@ -202,6 +275,188 @@ class Cursor(ABC):
 
             if commit:
                 self.commit()
+
+    def bulk_insert_file(
+        self,
+        table: Union[str, "SQLTable"],
+        file: Union[str, Path],
+        commit: bool = True,
+        file_format: str = "CSV",
+        field_terminator: str = ",",
+        row_terminator: str = "\n",
+        field_quote: str = '"',
+        datafile_type: str = 'char',
+        first_row: int = 2,
+        code_page: str = '65001',
+        tablock: bool = False,
+        other_options: str = ""
+    ):
+        """
+        See https://learn.microsoft.com/en-us/sql/t-sql/statements/bulk-insert-transact-sql?view=sql-server-2017
+
+        :param table: name or SQLTable
+        :param file:
+        :param commit:
+        :param file_format:
+        :param field_terminator: separator, default = ','
+        :param row_terminator:
+        :param field_quote:
+        :param datafile_type:
+        :param first_row:
+        :param code_page: encoding, default '65001' = utf-8
+        :param tablock: use TABLOCK options
+        :param other_options: string to append: WITH (FORMAT = 'file_format', %s) % other_options
+        :return: None
+        """
+        options = "FORMAT = '%s', DATAFILETYPE = '%s',  FIRSTROW = %s, FIELDQUOTE = '%s', ROWTERMINATOR = '%s', " \
+                  "CODEPAGE = '%s', FIELDTERMINATOR = '%s'" % (
+                      file_format, datafile_type, first_row, field_quote, row_terminator, code_page,
+                      field_terminator
+                  )
+        if tablock:
+            options += ", TABLOCK"
+        if other_options:
+            options += ", " + other_options
+
+        self.execute("""BULK INSERT %s FROM '%s' WITH (%s)""" % (table, file, options))
+        if commit:
+            self.commit()
+
+    def bulk_insert_arrow(
+        self,
+        table: Union[str, "SQLTable"],
+        data: ArrowData,
+        base_dir: Optional[str] = None,
+        cast: bool = True,
+        safe: bool = DEFAULT_SAFE_MODE,
+        commit: bool = True,
+        delimiter: str = ",",
+        file_format: str = "CSV",
+        tablock: bool = False,
+        **bulk_options: dict[str, str]
+    ):
+        if base_dir is None:
+            with tempfile.TemporaryDirectory() as base_dir:
+                return self.bulk_insert_arrow(
+                    table,
+                    data,
+                    base_dir=base_dir,
+                    cast=cast,
+                    safe=safe,
+                    commit=commit,
+                    delimiter=delimiter,
+                    file_format=file_format,
+                    tablock=tablock,
+                    **bulk_options
+                )
+        else:
+            if cast:
+                data = cast_arrow(data, table.schema_arrow, safe, fill_empty=True, drop=False)
+
+            if isinstance(data, (RecordBatch, Table)):
+                tmp_file = os.path.join(base_dir, os.urandom(8).hex()) + ".csv"
+
+                # write in tmp file
+                try:
+                    pcsv.write_csv(
+                        prepare_bulk_csv_batch(data),
+                        tmp_file,
+                        pcsv.WriteOptions(delimiter=delimiter)
+                    )
+
+                    self.bulk_insert_file(
+                        table,
+                        file=tmp_file,
+                        commit=commit,
+                        file_format=file_format,
+                        field_terminator=delimiter,
+                        row_terminator="\n",
+                        field_quote='"',
+                        datafile_type="char",
+                        first_row=2,
+                        tablock=tablock,
+                        **bulk_options
+                    )
+                finally:
+                    os.remove(tmp_file)
+            else:
+                # iterate on record batches
+                for batch in data:
+                    self.bulk_insert_arrow(
+                        table,
+                        batch,
+                        base_dir=base_dir,
+                        cast=cast,
+                        safe=safe,
+                        commit=commit,
+                        delimiter=delimiter,
+                        file_format=file_format,
+                        tablock=tablock,
+                        **bulk_options
+                    )
+
+    def insert_arrow(
+        self,
+        table: Union[str, "SQLTable"],
+        data: ArrowData,
+        cast: bool = True,
+        safe: bool = DEFAULT_SAFE_MODE,
+        stmt: str = "",
+        commit: bool = True,
+        bulk: bool = False,
+        tablock: bool = False,
+        commit_size: int = 1,
+        **insert_options: dict[str, Union[str, int, bool]]
+    ):
+        if bulk:
+            return self.bulk_insert_arrow(
+                table=table,
+                data=data,
+                cast=cast,
+                safe=safe,
+                tablock=tablock,
+                **insert_options
+            )
+        if cast:
+            data = cast_arrow(data, table.schema_arrow, safe, fill_empty=False, drop=True)
+
+        if isinstance(data, (RecordBatch, Table)):
+            return self.insert_pylist(
+                table,
+                [tuple(row.values()) for row in prepare_insert_batch(data).to_pylist()],
+                data.schema.names,
+                stmt=stmt,
+                commit=commit,
+                tablock=tablock,
+                commit_size=commit_size
+            )
+        elif isinstance(data, RecordBatchReader):
+            commit_size = self.safe_commit_size(commit_size, len(data.schema.names))
+            stmt = prepare_insert_batch_statement(
+                table, data.schema.names, tablock=tablock, commit_size=commit_size
+            )
+
+            for batch in data:
+                self.insert_pylist(
+                    table,
+                    [tuple(row.values()) for row in prepare_insert_batch(batch).to_pylist()],
+                    batch.schema.names,
+                    stmt=stmt,
+                    commit=commit,
+                    tablock=tablock,
+                    commit_size=commit_size
+                )
+        else:
+            for batch in data:
+                self.insert_pylist(
+                    table,
+                    [tuple(row.values()) for row in prepare_insert_batch(batch).to_pylist()],
+                    batch.schema.names,
+                    stmt=stmt,
+                    commit=commit,
+                    tablock=tablock,
+                    commit_size=commit_size
+                )
 
     # config statements
     def set_identity_insert(self, table: "msa.table.SQLTable", on: bool = True):
