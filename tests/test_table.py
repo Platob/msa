@@ -633,9 +633,9 @@ class TableTests(MSSQLTestCase):
 
         self.assertEqual(
             {
-                'IDX:string_int': SQLIndex(
+                'IDX:string:int': SQLIndex(
                     index_id=0,
-                    table=self.table, name='IDX:string_int', columns=['string', 'int'],
+                    table=self.table, name='IDX:string:int', columns=['string', 'int'],
                     type='NONCLUSTERED', unique=False
                 )
             },
@@ -645,7 +645,7 @@ class TableTests(MSSQLTestCase):
         with self.server.cursor() as c:
             c.drop_table_index(
                 table=self.table,
-                name="IDX:string_int"
+                name="IDX:string:int"
             )
             c.commit()
 

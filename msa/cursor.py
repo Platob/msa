@@ -642,7 +642,7 @@ class Cursor(ABC):
 
     # config statements
     def set_identity_insert(self, table: "msa.table.SQLTable", on: bool = True):
-        self.execute("SET IDENTITY_INSERT %s %s" % (table.full_name, "ON" if on else "OFF"))
+        self.execute("SET IDENTITY_INSERT %s %s" % (table, "ON" if on else "OFF"))
 
     def set_nocount(self, on: bool = True):
         self.execute("SET NOCOUNT %s" % 'ON' if on else 'OFF')
@@ -659,7 +659,7 @@ class Cursor(ABC):
 
         "CREATE %s INDEX [%s] ON %s.%s.%s (%s)" % (
             type,
-            name if name else "IDX:%s" % ("_".join(columns)),
+            name if name else "IDX:%s" % (":".join(columns)),
             table.catalog, table.schema, table.name,
             ",".join(columns)
         )
@@ -671,7 +671,7 @@ class Cursor(ABC):
         self.execute(
             "CREATE %s INDEX [%s] ON %s.%s.%s (%s)" % (
                 type,
-                name if name else "IDX:%s" % ("_".join(columns)),
+                name if name else "IDX:%s" % (":".join(columns)),
                 table.catalog, table.schema, table.name,
                 ",".join(columns)
             )
