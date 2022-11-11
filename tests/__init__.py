@@ -5,6 +5,7 @@ from msa import MSSQL
 
 class MSSQLTestCase(unittest.TestCase):
     PYMSA_UNITTEST = "PYMSA_UNITTEST"
+    FOREIGN_PYMSA_UNITTEST = "FOREIGN_PYMSA_UNITTEST"
     vPYMSA_UNITTEST = "vPYMSA_UNITTEST"
 
     @staticmethod
@@ -30,9 +31,13 @@ class MSSQLTestCase(unittest.TestCase):
         with server.cursor() as c:
             try:
                 c.execute(f"DROP TABLE {cls.PYMSA_UNITTEST}")
-            except Exception:
+                c.commit()
+            except Exception as e:
                 pass
+
+        with server.cursor() as c:
             c.execute(f"""CREATE TABLE {cls.PYMSA_UNITTEST} (
+    id int identity not null PRIMARY KEY,
     int int,
     smallint smallint,
     tinyint tinyint,
@@ -57,6 +62,21 @@ class MSSQLTestCase(unittest.TestCase):
     char char,
     nchar nchar
 )""")
+            c.commit()
+
+    @classmethod
+    def create_foreign_test_table(cls, server: MSSQL):
+        with server.cursor() as c:
+            try:
+                c.execute(f"DROP TABLE {cls.FOREIGN_PYMSA_UNITTEST}")
+                c.commit()
+            except Exception as e:
+                pass
+
+            c.execute(f"""CREATE TABLE {cls.FOREIGN_PYMSA_UNITTEST} (
+                    foreignid int FOREIGN KEY REFERENCES {cls.PYMSA_UNITTEST}(id),
+                    string varchar(64) not null
+                )""")
             c.commit()
 
     @classmethod

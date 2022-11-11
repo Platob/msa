@@ -416,57 +416,65 @@ class Cursor(ABC):
         bulk: bool = False,
         tablock: bool = False,
         commit_size: int = 1,
+        check_foreign_keys: bool = True,
         **insert_options: dict[str, Union[str, int, bool]]
     ):
-        if bulk:
-            return self.bulk_insert_arrow(
-                table=table,
-                data=data,
-                cast=cast,
-                safe=safe,
-                tablock=tablock,
-                **insert_options
-            )
-        if cast:
-            data = cast_arrow(data, table.schema_arrow, safe, fill_empty=False, drop=True)
+        if not check_foreign_keys:
+            self.disable_table_all_constraints(table)
 
-        if isinstance(data, (RecordBatch, Table)):
-            return self.insert_pylist(
-                table,
-                [tuple(row.values()) for row in prepare_insert_batch(data).to_pylist()],
-                data.schema.names,
-                stmt=stmt,
-                commit=commit,
-                tablock=tablock,
-                commit_size=commit_size
-            )
-        elif isinstance(data, RecordBatchReader):
-            commit_size = self.safe_commit_size(commit_size, len(data.schema.names))
-            stmt = prepare_insert_batch_statement(
-                table, data.schema.names, tablock=tablock, commit_size=commit_size
-            )
+        try:
+            if bulk:
+                return self.bulk_insert_arrow(
+                    table=table,
+                    data=data,
+                    cast=cast,
+                    safe=safe,
+                    tablock=tablock,
+                    **insert_options
+                )
+            if cast:
+                data = cast_arrow(data, table.schema_arrow, safe, fill_empty=False, drop=True)
 
-            for batch in data:
-                self.insert_pylist(
+            if isinstance(data, (RecordBatch, Table)):
+                return self.insert_pylist(
                     table,
-                    [tuple(row.values()) for row in prepare_insert_batch(batch).to_pylist()],
-                    batch.schema.names,
+                    [tuple(row.values()) for row in prepare_insert_batch(data).to_pylist()],
+                    data.schema.names,
                     stmt=stmt,
                     commit=commit,
                     tablock=tablock,
                     commit_size=commit_size
                 )
-        else:
-            for batch in data:
-                self.insert_pylist(
-                    table,
-                    [tuple(row.values()) for row in prepare_insert_batch(batch).to_pylist()],
-                    batch.schema.names,
-                    stmt=stmt,
-                    commit=commit,
-                    tablock=tablock,
-                    commit_size=commit_size
+            elif isinstance(data, RecordBatchReader):
+                commit_size = self.safe_commit_size(commit_size, len(data.schema.names))
+                stmt = prepare_insert_batch_statement(
+                    table, data.schema.names, tablock=tablock, commit_size=commit_size
                 )
+
+                for batch in data:
+                    self.insert_pylist(
+                        table,
+                        [tuple(row.values()) for row in prepare_insert_batch(batch).to_pylist()],
+                        batch.schema.names,
+                        stmt=stmt,
+                        commit=commit,
+                        tablock=tablock,
+                        commit_size=commit_size
+                    )
+            else:
+                for batch in data:
+                    self.insert_pylist(
+                        table,
+                        [tuple(row.values()) for row in prepare_insert_batch(batch).to_pylist()],
+                        batch.schema.names,
+                        stmt=stmt,
+                        commit=commit,
+                        tablock=tablock,
+                        commit_size=commit_size
+                    )
+        finally:
+            if not check_foreign_keys:
+                self.enable_table_all_constraints(table)
 
     # Parquet insert
     def insert_parquet_file(
@@ -698,11 +706,13 @@ class Cursor(ABC):
         self.execute("ALTER INDEX ALL ON %s REBUILD" % table.full_name)
         self.commit()
 
-    # Foreign keys
-    def enable_table_all_foreign_keys(self, table: "msa.table.SQLTable"):
+    # Constraints
+    def enable_table_all_constraints(self, table: "msa.table.SQLTable"):
         self.execute("ALTER TABLE %s CHECK CONSTRAINT ALL;ALTER TABLE %s WITH CHECK CHECK CONSTRAINT ALL" % (
             table.full_name, table.full_name
         ))
+        self.commit()
 
-    def disable_table_all_foreign_keys(self, table: "msa.table.SQLTable"):
+    def disable_table_all_constraints(self, table: "msa.table.SQLTable"):
         self.execute("ALTER TABLE %s NOCHECK CONSTRAINT ALL" % table.full_name)
+        self.commit()

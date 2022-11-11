@@ -26,6 +26,7 @@ class TableTests(MSSQLTestCase):
 
     def test_table_schema_arrow(self):
         expected = schema([
+            pa.field("id", pa.int32(), False),
             pa.field("int", pa.int32(), True),
             pa.field("smallint", pa.int16(), True),
             pa.field("tinyint", pa.int8(), True),
@@ -364,6 +365,7 @@ class TableTests(MSSQLTestCase):
 
     def test_bulk_insert_arrow(self):
         data = pyarrow.RecordBatch.from_arrays([
+            pyarrow.array([0, 1]),
             pyarrow.array([datetime.date(2022, 10, 20), None]),
             pyarrow.array(['test', 'test']),
             pyarrow.array([None, None]),
@@ -373,6 +375,7 @@ class TableTests(MSSQLTestCase):
             pyarrow.array([numpy.datetime64('2017-03-16T10:35:18.123456800'), None]),
             pyarrow.array([1, None]),
         ], schema=pyarrow.schema([
+            pyarrow.field("id", pyarrow.int32(), nullable=False),
             pyarrow.field("date", pyarrow.date32(), nullable=True),
             pyarrow.field("string", pyarrow.string(), nullable=False),
             pyarrow.field("float", pyarrow.float64(), nullable=True),
@@ -413,6 +416,7 @@ class TableTests(MSSQLTestCase):
 
     def test_bulk_insert_arrow_via_insert_arrow(self):
         data = pyarrow.RecordBatch.from_arrays([
+            pyarrow.array([0, 1]),
             pyarrow.array([datetime.date(2022, 10, 20), None]),
             pyarrow.array(['test', 'test']),
             pyarrow.array([None, None]),
@@ -422,6 +426,7 @@ class TableTests(MSSQLTestCase):
             pyarrow.array([numpy.datetime64('2017-03-16T10:35:18.123456800'), None]),
             pyarrow.array([1, None]),
         ], schema=pyarrow.schema([
+            pyarrow.field("id", pyarrow.int32(), nullable=False),
             pyarrow.field("date", pyarrow.date32(), nullable=True),
             pyarrow.field("string", pyarrow.string(), nullable=False),
             pyarrow.field("float", pyarrow.float64(), nullable=True),
@@ -463,10 +468,12 @@ class TableTests(MSSQLTestCase):
 
     def test_bulk_insert_arrow_binary(self):
         data = pyarrow.RecordBatch.from_arrays([
+            pyarrow.array([0, 1]),
             pyarrow.array(['test', 'test']),
             pyarrow.array([b"test", None]),
             pyarrow.array([b"image", None])
         ], schema=pyarrow.schema([
+            pyarrow.field("id", pyarrow.int32(), nullable=False),
             pyarrow.field("string", pyarrow.string(), nullable=False),
             pyarrow.field("binary", pyarrow.binary(), nullable=True),
             pyarrow.field("image", pyarrow.binary(), nullable=True)
@@ -519,7 +526,7 @@ class TableTests(MSSQLTestCase):
         buf.seek(0)
 
         self.table.truncate()
-        self.table.insert_parquet_file(buf)
+        self.table.insert_parquet_file(buf, check_foreign_keys=False)
 
         result = [
             list(_)
@@ -632,14 +639,12 @@ class TableTests(MSSQLTestCase):
             c.commit()
 
         self.assertEqual(
-            {
-                'IDX:string:int': SQLIndex(
-                    index_id=0,
-                    table=self.table, name='IDX:string:int', columns=['string', 'int'],
-                    type='NONCLUSTERED', unique=False
-                )
-            },
-            self.table.indexes
+            SQLIndex(
+                index_id=0,
+                table=self.table, name='IDX:string:int', columns=['string', 'int'],
+                type='NONCLUSTERED', unique=False
+            ),
+            self.table.indexes["IDX:string:int"]
         )
 
         with self.server.cursor() as c:
@@ -650,8 +655,8 @@ class TableTests(MSSQLTestCase):
             c.commit()
 
         self.assertEqual(
-            {},
-            self.table.indexes
+            None,
+            self.table.indexes.get("IDX:string:int")
         )
 
     def test_disable_rebuild_index(self):
@@ -720,9 +725,9 @@ class TableTests(MSSQLTestCase):
                         name="test_index"
                     )
 
-    def test_enable_disable_fk(self):
+    def test_enable_disable_constraints(self):
         with self.server.cursor() as c:
-            c.disable_table_all_foreign_keys(self.table)
+            c.disable_table_all_constraints(self.table)
             c.commit()
-            c.enable_table_all_foreign_keys(self.table)
+            c.enable_table_all_constraints(self.table)
             c.commit()
