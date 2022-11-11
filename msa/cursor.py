@@ -416,10 +416,10 @@ class Cursor(ABC):
         bulk: bool = False,
         tablock: bool = False,
         commit_size: int = 1,
-        check_foreign_keys: bool = True,
+        check_constraints: bool = True,
         **insert_options: dict[str, Union[str, int, bool]]
     ):
-        if not check_foreign_keys:
+        if not check_constraints:
             self.disable_table_all_constraints(table)
 
         try:
@@ -473,7 +473,7 @@ class Cursor(ABC):
                         commit_size=commit_size
                     )
         finally:
-            if not check_foreign_keys:
+            if not check_constraints:
                 self.enable_table_all_constraints(table)
 
     # Parquet insert
