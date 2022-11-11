@@ -719,3 +719,10 @@ class TableTests(MSSQLTestCase):
                         table=self.table,
                         name="test_index"
                     )
+
+    def test_enable_disable_fk(self):
+        with self.server.cursor() as c:
+            c.disable_table_all_foreign_keys(self.table)
+            c.commit()
+            c.enable_table_all_foreign_keys(self.table)
+            c.commit()

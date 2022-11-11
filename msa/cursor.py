@@ -697,3 +697,12 @@ class Cursor(ABC):
     def rebuild_table_all_indexes(self, table: "msa.table.SQLTable"):
         self.execute("ALTER INDEX ALL ON %s REBUILD" % table.full_name)
         self.commit()
+
+    # Foreign keys
+    def enable_table_all_foreign_keys(self, table: "msa.table.SQLTable"):
+        self.execute("ALTER TABLE %s CHECK CONSTRAINT ALL;ALTER TABLE %s WITH CHECK CHECK CONSTRAINT ALL" % (
+            table.full_name, table.full_name
+        ))
+
+    def disable_table_all_foreign_keys(self, table: "msa.table.SQLTable"):
+        self.execute("ALTER TABLE %s NOCHECK CONSTRAINT ALL" % table.full_name)
