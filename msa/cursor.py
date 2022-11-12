@@ -230,6 +230,17 @@ class Cursor(ABC):
     ) -> RecordBatchReader:
         return RecordBatchReader.from_batches(self.schema_arrow, self.fetch_arrow_batches(n, safe))
 
+    # object
+    def table_or_view(self, table: Union[tuple[str, str, str]]):
+        from .table import SQLTable
+        if isinstance(table, SQLTable):
+            return table
+        elif isinstance(table, str):
+            return self.connection.table_or_view(table)
+        else:
+            catalog, schema, name = table
+            return self.connection.table_or_view(name, schema=schema, catalog=catalog)
+
     # Inserts
     # INSERT INTO VALUES
     def insert_pylist(
@@ -362,6 +373,8 @@ class Cursor(ABC):
                     **bulk_options
                 )
         else:
+            table = self.table_or_view(table)
+
             if cast:
                 data = cast_arrow(data, table.schema_arrow, safe, fill_empty=True, drop=False)
 
@@ -422,6 +435,8 @@ class Cursor(ABC):
         delayed_check_constraints: bool = False,
         **insert_options: dict[str, Union[str, int, bool]]
     ):
+        table = self.table_or_view(table)
+
         if delayed_check_constraints or not check_constraints:
             self.disable_table_all_constraints(table)
 
@@ -514,6 +529,8 @@ class Cursor(ABC):
         :return: insert_arrow rtype
         """
         if isinstance(source, ParquetFile):
+            table = self.table_or_view(table)
+
             if exclude_columns:
                 exclude_columns = [get_field(source.schema_arrow, _).name for _ in exclude_columns]
                 input_schema = schema(
@@ -614,6 +631,8 @@ class Cursor(ABC):
         :param file_inspector: Callable[[FileInfo], None]
         :param insert_parquet_file_options: other self.insert_parquet_file options
         """
+        table = self.table_or_view(table)
+
         for ofs in filesystem.get_file_info(
             FileSelector(base_dir, allow_not_found=allow_not_found, recursive=recursive)
         ):

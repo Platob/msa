@@ -1,4 +1,5 @@
 __all__ = [
+    "iter_dir_files",
     "cast_batch", "cast_array", "cast_arrow",
     "intersect_schemas",
     "timestamp_to_timestamp",
@@ -9,7 +10,7 @@ __all__ = [
 ]
 
 import datetime
-from typing import Union, Iterable, Generator, Optional
+from typing import Union, Iterable, Generator, Optional, Callable
 
 import pyarrow
 import pyarrow as pa
@@ -17,6 +18,7 @@ import pyarrow.compute as pc
 
 from pyarrow import RecordBatch, Schema, schema as schema_builder, Field, field as field_builder, Array, DataType, \
     Decimal128Type, Decimal256Type, TimestampType, ArrowInvalid, Time64Type, Table, RecordBatchReader, array
+from pyarrow.fs import FileSystem, FileInfo, FileType, FileSelector
 
 from ..config import DEFAULT_SAFE_MODE
 
@@ -278,3 +280,23 @@ def cast_arrow(
         return (cast_batch(_, schema, safe, fill_empty, drop) for _ in data)
     else:
         return RecordBatchReader.from_batches(schema, (cast_batch(_, schema, safe, fill_empty, False) for _ in data))
+
+
+# FileSystem
+def iter_dir_files(
+    fs: FileSystem,
+    path: str,
+    allow_not_found: bool = False,
+    filter_file: Callable[[FileInfo], bool] = lambda x: False
+) -> Generator[FileInfo, None, None]:
+    for ofs in fs.get_file_info(
+        FileSelector(path, allow_not_found=allow_not_found, recursive=False)
+    ):
+        # <FileInfo for 'path': type=FileType.Directory>
+        # or <FileInfo for 'path': type=FileType.File, size=0>
+        if ofs.is_file:
+            if not filter_file(ofs):
+                yield ofs
+        elif ofs.type == FileType.Directory:
+            for file in iter_dir_files(fs, ofs.path, allow_not_found, filter_file):
+                yield file

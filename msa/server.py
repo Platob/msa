@@ -3,10 +3,14 @@ __all__ = ["MSSQL"]
 import os
 from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable, Any
+from typing import Callable, Any, Iterable, Union
+
+from pyarrow.fs import LocalFileSystem, FileSystem, FileInfo
 
 from msa.connection import Connection
 from msa.cursor import Cursor
+from .table import SQLTable
+from msa.utils.arrow import iter_dir_files
 
 
 def return_iso(o):
@@ -46,7 +50,7 @@ class MSSQL:
         cursor_wrapper: Callable = return_iso,
         result_wrapper: Callable = return_iso,
         concurrency: ThreadPoolExecutor = ThreadPoolExecutor(os.cpu_count()),
-        arguments: list[tuple[list, dict]] = (),
+        arguments: Iterable[tuple[list, dict]] = (),
         timeout: int = None
     ):
         return (
@@ -60,4 +64,35 @@ class MSSQL:
                     arguments=argument
                 ) for argument in arguments
             ], timeout=timeout)
+        )
+
+    def insert_parquet_dir(
+        self,
+        table: Union[str, tuple[str, str, str], SQLTable],
+        base_dir: str,
+        filesystem: FileSystem = LocalFileSystem(),
+        filter_file: Callable[[FileInfo], bool] = lambda x: False,
+        cursor_wrapper: Callable = return_iso,
+        result_wrapper: Callable = return_iso,
+        concurrency: ThreadPoolExecutor = ThreadPoolExecutor(os.cpu_count()),
+        timeout: int = None,
+        **insert_parquet_file
+    ):
+        # persist table data
+        if not isinstance(table, SQLTable):
+            with self.cursor() as c:
+                table = c.table_or_view(table)
+        table = (table.catalog, table.schema, table.name)
+
+        return self.execute(
+            "insert_parquet_file",
+            cursor_wrapper=cursor_wrapper,
+            result_wrapper=result_wrapper,
+            concurrency=concurrency,
+            timeout=timeout,
+            arguments=[
+                ([table, ofs.path], insert_parquet_file)
+                for ofs in iter_dir_files(filesystem, base_dir, filter_file)
+                if ofs.size > 0
+            ]
         )

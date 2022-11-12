@@ -71,10 +71,7 @@ class PyODBCConnection(Abstract):
 
     def cursor(self, fast_executemany: bool = True, *args, **kwargs) -> PyODBCCursor:
         # reconnect if closed
-        if self.closed:
-            self.reconnect()
-
-        return PyODBCCursor(
+        return self.server.connect(timeout=self.timeout).cursor() if self.closed else PyODBCCursor(
             self,
             self.raw.cursor(*args, **kwargs),
             fast_executemany=fast_executemany

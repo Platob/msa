@@ -630,6 +630,38 @@ class TableTests(MSSQLTestCase):
             result
         )
 
+    def test_insert_parquet_dir_concurrent(self):
+        import pyarrow.parquet as p
+
+        def gen_data(n: int):
+            return pyarrow.Table.from_arrays([
+                pyarrow.array(['data%s' % n for _ in range(n)]),
+                pyarrow.array([b"data0" for _ in range(n)])
+            ], schema=pyarrow.schema([
+                pyarrow.field("string", pyarrow.string(), nullable=False),
+                pyarrow.field("binary", pyarrow.binary(), nullable=True)
+            ]))
+
+        self.table.truncate()
+        num = 10
+        datas = [gen_data(10 * i) for i in range(num)]
+
+        with tempfile.TemporaryDirectory() as base_dir:
+            for i in range(num):
+                p.write_table(datas[i], os.path.join(base_dir, "part=%s" % i))
+            list(self.server.insert_parquet_dir(self.table, base_dir))
+
+        batches = []
+        for i in range(num):
+            batches.extend(datas[i].to_batches())
+
+        self.assertEqual(
+            Table.from_batches(batches),
+            self.server.cursor().execute(
+                f"select string, binary from {self.PYMSA_UNITTEST} order by string"
+            ).fetch_arrow()
+        )
+
     def test_create_drop_index(self):
         with self.server.cursor() as c:
             c.create_table_index(
@@ -781,27 +813,31 @@ class TableTests(MSSQLTestCase):
     def test_concurrent_write(self):
         data = pyarrow.Table.from_arrays([
             pyarrow.array(['data1', 'data1']),
-            pyarrow.array([b"data1", None])
+            pyarrow.array([b"data1", b"data1"])
         ], schema=pyarrow.schema([
             pyarrow.field("string", pyarrow.string(), nullable=False),
             pyarrow.field("binary", pyarrow.binary(), nullable=True)
         ]))
 
         self.table.truncate()
-        self.table.connection.close()
+        table = (self.table.catalog, self.table.schema, self.table.name)
 
         list(
             self.server.execute(
                 "insert_arrow",
                 arguments=[
-                    ([self.table, data], {}),
-                    ([self.table, data], {})
+                    ([table, data], {}),
+                    ([table, data], {}),
+                    ([table, data], {}),
+                    ([table, data], {})
                 ]
             )
         )
 
         self.assertEqual(
             Table.from_batches([
+                *data.to_batches(),
+                *data.to_batches(),
                 *data.to_batches(),
                 *data.to_batches()
             ]),

@@ -38,10 +38,10 @@ class Connection(ABC):
         raise NotImplemented
 
     # table
-    def tables(self, catalog: str = "master", schema: str = "dbo", expression: Optional[str] = None):
+    def tables(self, catalog: str = "%%", schema: str = "%%", expression: Optional[str] = None):
         stmt = "SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, OBJECT_ID('[' + TABLE_CATALOG + '].[' + " \
-               "TABLE_SCHEMA + '].[' + TABLE_NAME + ']') as oid FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_CATALOG = " \
-               "'%s' AND TABLE_SCHEMA = '%s'" % (catalog, schema)
+               "TABLE_SCHEMA + '].[' + TABLE_NAME + ']') as oid FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_CATALOG " \
+               "LIKE '%s' AND TABLE_SCHEMA LIKE '%s'" % (catalog, schema)
         if expression:
             stmt += " AND TABLE_NAME LIKE '%s'" % expression
         with self.cursor() as c:
@@ -51,12 +51,12 @@ class Connection(ABC):
     def table(self, name: str, catalog: str = "master", schema: str = "dbo"):
         for t in self.tables(catalog, schema, name):
             return t
-        raise ValueError("Cannot find table '%s'" % name)
+        raise ValueError("Cannot find table [%s].[%s].[%s]" % (catalog, schema, name))
 
-    def views(self, catalog: str = "master", schema: str = "dbo", expression: Optional[str] = None):
+    def views(self, catalog: str = "%%", schema: str = "%%", expression: Optional[str] = None):
         stmt = "SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, OBJECT_ID('[' + TABLE_CATALOG + '].[' + " \
-               "TABLE_SCHEMA + '].[' + TABLE_NAME + ']') as oid FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_CATALOG = " \
-               "'%s' AND TABLE_SCHEMA = '%s'" % (catalog, schema)
+               "TABLE_SCHEMA + '].[' + TABLE_NAME + ']') as oid FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_CATALOG " \
+               "LIKE '%s' AND TABLE_SCHEMA LIKE '%s'" % (catalog, schema)
         if expression:
             stmt += " AND TABLE_NAME LIKE '%s'" % expression
         with self.cursor() as c:
@@ -66,4 +66,11 @@ class Connection(ABC):
     def view(self, name: str, catalog: str = "master", schema: str = "dbo"):
         for t in self.views(catalog, schema, name):
             return t
-        raise ValueError("Cannot find view '%s'" % name)
+        raise ValueError("Cannot find view [%s].[%s].[%s]" % (catalog, schema, name))
+
+    def table_or_view(self, name: str, catalog: str = "%%", schema: str = "%%"):
+        for t in self.tables(catalog, schema, name):
+            return t
+        for t in self.views(catalog, schema, name):
+            return t
+        raise ValueError("Cannot find table / view [%s].[%s].[%s]" % (catalog, schema, name))
