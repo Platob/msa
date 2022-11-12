@@ -375,40 +375,19 @@ and index_id > 0""" % self.object_id).fetchall()
         :param use_threads:
         :param insert_parquet_file_options: other cursor.insert_parquet_file options
         """
-        for ofs in filesystem.get_file_info(
-            FileSelector(base_dir, allow_not_found=allow_not_found, recursive=recursive)
-        ):
-            # <FileInfo for 'path': type=FileType.Directory>
-            # or <FileInfo for 'path': type=FileType.File, size=0>
-            if ofs.type == FileType.File:
-                if ofs.size > 0:
-                    self.insert_parquet_file(
-                        source=ofs.path,
-                        batch_size=batch_size,
-                        buffer_size=buffer_size,
-                        cast=cast,
-                        safe=safe,
-                        commit=commit,
-                        filesystem=filesystem,
-                        coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
-                        use_threads=use_threads,
-                        **insert_parquet_file_options
-                    )
-                    yield ofs
-            elif ofs.type == FileType.Directory:
-                for _ in self.insert_parquet_dir(
-                    base_dir=ofs.path,
-                    batch_size=batch_size,
-                    buffer_size=buffer_size,
-                    cast=cast,
-                    safe=safe,
-                    commit=commit,
-                    filesystem=filesystem,
-                    coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
-                    use_threads=use_threads,
-                    **insert_parquet_file_options
-                ):
-                    yield _
+        return self.cursor.insert_parquet_dir(
+            table=self,
+            base_dir=base_dir,
+            batch_size=batch_size,
+            buffer_size=buffer_size,
+            cast=cast,
+            safe=safe,
+            commit=commit,
+            filesystem=filesystem,
+            coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
+            use_threads=use_threads,
+            **insert_parquet_file_options
+        )
 
 
 class SQLView(SQLTable):

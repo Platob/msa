@@ -606,28 +606,16 @@ class TableTests(MSSQLTestCase):
             p.write_table(data1, f1)
 
             self.table.truncate()
-            files = [
-                _ for _ in self.table.insert_parquet_dir(base_dir)
-            ]
+            self.table.insert_parquet_dir(base_dir)
 
         self.assertEqual(
-            [f0.replace("\\", "/"), f1.replace("\\", "/")],  # windows path like C:\\
-            [_.path for _ in files]
-        )
-
-        result = [
-            list(_)
-            for _ in self.server.cursor().execute(
-                f"select string, binary, image from {self.PYMSA_UNITTEST}"
-            ).fetchall()
-        ]
-
-        self.assertEqual(
-            [['data0', b'data0', None],
-             ['data0', None, None],
-             ['data1', b'data1', None],
-             ['data1', None, None]],
-            result
+            Table.from_batches([
+                *data0.to_batches(),
+                *data1.to_batches()
+            ]),
+            self.server.cursor().execute(
+                f"select string, binary from {self.PYMSA_UNITTEST}"
+            ).fetch_arrow(2)
         )
 
     def test_insert_parquet_dir_concurrent(self):
