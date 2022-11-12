@@ -46,7 +46,12 @@ LARGE_BINARY = pa.large_binary()
 NULL = pa.null()
 
 
-def get_field(schema: Schema, name: str, raise_error: bool = True) -> Optional[Field]:
+def get_field(
+    schema: Schema,
+    name: str,
+    raise_error: bool = True,
+    replace_name: bool = False
+) -> Optional[Field]:
     try:
         idx = schema.names.index(name)
         return schema.field(idx)
@@ -55,7 +60,9 @@ def get_field(schema: Schema, name: str, raise_error: bool = True) -> Optional[F
         # ValueError: 'name' is not in list
         for batch_field in schema:
             if batch_field.name.lower() == name.lower():
-                return batch_field
+                return field_builder(
+                    name, batch_field.type, batch_field.nullable, batch_field.metadata
+                ) if replace_name else batch_field
         if raise_error:
             raise KeyError("Cannot find Field<'%s'> in schema %s" % (
                 name, schema.names
@@ -63,8 +70,8 @@ def get_field(schema: Schema, name: str, raise_error: bool = True) -> Optional[F
         return None
 
 
-def intersect_schemas(schema: Schema, names: list[str]):
-    fields = [get_field(schema, name, False) for name in names]
+def intersect_schemas(schema: Schema, names: list[str], replace_name: bool = False):
+    fields = [get_field(schema, name, False, replace_name) for name in names]
     return schema_builder(
         [_ for _ in fields if _ is not None],
         schema.metadata

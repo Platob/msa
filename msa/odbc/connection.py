@@ -68,3 +68,11 @@ class PyODBCConnection(Abstract):
             self.raw.cursor(*args, **kwargs),
             fast_executemany=fast_executemany
         )
+
+    @property
+    def timeout(self):
+        return self.raw.timeout
+
+    @timeout.setter
+    def timeout(self, timeout: int):
+        self.raw.timeout = timeout

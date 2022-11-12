@@ -30,6 +30,12 @@ class MSSQLTestCase(unittest.TestCase):
     def create_test_table(cls, server: MSSQL):
         with server.cursor() as c:
             try:
+                c.execute(f"DROP TABLE {cls.FOREIGN_PYMSA_UNITTEST}")
+                c.commit()
+            except:
+                pass
+
+            try:
                 c.execute(f"DROP TABLE {cls.PYMSA_UNITTEST}")
                 c.commit()
             except Exception as e:

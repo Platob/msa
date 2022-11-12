@@ -728,6 +728,4 @@ class TableTests(MSSQLTestCase):
     def test_enable_disable_constraints(self):
         with self.server.cursor() as c:
             c.disable_table_all_constraints(self.table)
-            c.commit()
             c.enable_table_all_constraints(self.table)
-            c.commit()

@@ -417,9 +417,10 @@ class Cursor(ABC):
         tablock: bool = False,
         commit_size: int = 1,
         check_constraints: bool = True,
+        delayed_check_constraints: bool = False,
         **insert_options: dict[str, Union[str, int, bool]]
     ):
-        if not check_constraints:
+        if delayed_check_constraints or not check_constraints:
             self.disable_table_all_constraints(table)
 
         try:
@@ -473,8 +474,8 @@ class Cursor(ABC):
                         commit_size=commit_size
                     )
         finally:
-            if not check_constraints:
-                self.enable_table_all_constraints(table)
+            if delayed_check_constraints:
+                self.enable_table_all_constraints(table, check=check_constraints)
 
     # Parquet insert
     def insert_parquet_file(
@@ -648,6 +649,21 @@ class Cursor(ABC):
                 ):
                     yield _
 
+    # Foreign Keys
+    def table_fk(self):
+        return self.execute("""select schema_name(fk_tab.schema_id) + '.' + fk_tab.name as foreign_table,
+    'Table',
+    'Foreign key',
+    fk.name as fk_constraint_name,
+    pk_tab.name as primary_key
+from sys.foreign_keys fk
+    inner join sys.tables fk_tab
+        on fk_tab.object_id = fk.parent_object_id
+    inner join sys.tables pk_tab
+        on pk_tab.object_id = fk.referenced_object_id
+    inner join sys.foreign_key_columns fk_cols
+        on fk_cols.constraint_object_id = fk.object_id""").fetchall()
+
     # config statements
     def set_identity_insert(self, table: "msa.table.SQLTable", on: bool = True):
         self.execute("SET IDENTITY_INSERT %s %s" % (table, "ON" if on else "OFF"))
@@ -707,9 +723,9 @@ class Cursor(ABC):
         self.commit()
 
     # Constraints
-    def enable_table_all_constraints(self, table: "msa.table.SQLTable"):
-        self.execute("ALTER TABLE %s CHECK CONSTRAINT ALL;ALTER TABLE %s WITH CHECK CHECK CONSTRAINT ALL" % (
-            table.full_name, table.full_name
+    def enable_table_all_constraints(self, table: "msa.table.SQLTable", check: bool = True):
+        self.execute("ALTER TABLE %s CHECK CONSTRAINT ALL;ALTER TABLE %s WITH %sCHECK CHECK CONSTRAINT ALL" % (
+            table.full_name, table.full_name, "" if check else "NO"
         ))
         self.commit()
 
