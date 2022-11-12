@@ -26,8 +26,9 @@ class PyODBC(MSSQL):
             t[0]: t[1] for t in (_.split("=") for _ in uri.split(";") if _)
         }
 
-    def connect(self, **kwargs) -> PyODBCConnection:
+    def connect(self, timeout: int = 0, **kwargs) -> PyODBCConnection:
         return PyODBCConnection(
             server=self,
-            raw=pyodbc.connect(self.uri, **kwargs)
+            raw=pyodbc.connect(self.uri, **kwargs),
+            timeout=timeout
         )

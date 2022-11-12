@@ -40,12 +40,13 @@ def handle_datetime(dto_value, d1900_1_1=datetime(1900, 1, 1)):
 
 class PyODBCConnection(Abstract):
 
-    def __init__(self, server: "PyMSSQL", raw: pymssql.Connection):
+    def __init__(self, server: "PyMSSQL", raw: pymssql.Connection, timeout: int = 0):
         super().__init__(server)
         self.raw = raw
 
         self.raw.add_output_converter(-155, handle_datetime_offset)
         self.raw.add_output_converter(SQL_TYPE_TIMESTAMP, handle_datetime)
+        self.raw.timeout = timeout
 
     def close(self):
         if not self.closed:
