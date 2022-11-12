@@ -1,6 +1,6 @@
 __all__ = ["PyODBCCursor"]
 
-from typing import Optional
+from typing import Optional, Any
 
 from pyarrow import schema, Schema
 from pyodbc import Cursor
@@ -58,11 +58,11 @@ class PyODBCCursor(AbstractCursor):
         self.raw.executemany(sql, *args, **kwargs)
         return self
 
-    def fetchone(self) -> Optional[tuple[object]]:
+    def fetchone(self) -> Optional[tuple[Any]]:
         return self.raw.fetchone()
 
-    def fetchmany(self, n: int = DEFAULT_BATCH_ROW_SIZE) -> Optional[list[tuple[object]]]:
+    def fetchmany(self, n: int = DEFAULT_BATCH_ROW_SIZE) -> Optional[list[tuple[Any]]]:
         return self.raw.fetchmany(n)
 
-    def fetchall(self, buffersize: int = 10) -> list[tuple[object]]:
+    def fetchall(self, buffersize: int = 10) -> list[tuple[Any]]:
         return self.raw.fetchall()

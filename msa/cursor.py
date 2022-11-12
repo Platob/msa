@@ -18,6 +18,7 @@ import pyarrow.compute as pc
 from pyarrow import Schema, schema, field, RecordBatch, Table, RecordBatchReader, \
     Array, ChunkedArray, array, TimestampType, Decimal128Type, Decimal256Type, FixedSizeBinaryType, NativeFile
 from pyarrow.fs import FileSystem, LocalFileSystem, FileSelector, FileType, FileInfo
+
 try:
     from pyarrow.parquet import ParquetFile
 except ImportError:
@@ -28,6 +29,7 @@ except ImportError:
         def __exit__(self, exc_type, exc_val, exc_tb):
             pass
 
+from .table import SQLView, SQLTable
 from .config import DEFAULT_BATCH_ROW_SIZE, DEFAULT_SAFE_MODE, DEFAULT_ARROW_BATCH_ROW_SIZE
 from .utils import prepare_insert_batch_statement, prepare_insert_statement
 from .utils.typing import ArrowData
@@ -112,12 +114,13 @@ class Cursor(ABC):
     def safe_commit_size(commit_size: int, columns_len: int):
         return int(min(columns_len * commit_size, 2099) / columns_len)
 
-    def __init__(self, connection: "Connection", nocount: bool = True):
+    def __init__(self, connection: "Connection", nocount: bool = True, timeout: int = 0):
         self.closed = False
 
         self.connection = connection
 
         self.nocount = nocount
+        self.timeout = timeout
 
     def __enter__(self):
         return self
@@ -164,7 +167,7 @@ class Cursor(ABC):
 
     # row oriented
     @abstractmethod
-    def fetchone(self) -> Optional[tuple[object]]:
+    def fetchone(self) -> Optional[tuple[Any]]:
         raise NotImplemented
 
     @abstractmethod
@@ -177,14 +180,14 @@ class Cursor(ABC):
             buf.extend(rows)
         return buf
 
-    def fetch_row_batches(self, n: int) -> Generator[list[tuple[object]], None, None]:
+    def fetch_row_batches(self, n: int) -> Generator[list[tuple[Any]], None, None]:
         while 1:
             rows = self.fetchmany(n)
             if not rows:
                 break
             yield rows
     
-    def rows(self, buffersize: int = DEFAULT_BATCH_ROW_SIZE) -> Generator[tuple[object], None, None]:
+    def rows(self, buffersize: int = DEFAULT_BATCH_ROW_SIZE) -> Generator[tuple[Any], None, None]:
         for batch in self.fetch_row_batches(buffersize):
             for row in batch:
                 yield row
@@ -231,15 +234,50 @@ class Cursor(ABC):
         return RecordBatchReader.from_batches(self.schema_arrow, self.fetch_arrow_batches(n, safe))
 
     # object
-    def table_or_view(self, table: Union[tuple[str, str, str]]):
-        from .table import SQLTable
+    # table
+    def tables(self, catalog: str = "%%", schema: str = "%%", expression: Optional[str] = None):
+        stmt = "SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, OBJECT_ID('[' + TABLE_CATALOG + '].[' + " \
+               "TABLE_SCHEMA + '].[' + TABLE_NAME + ']') as oid FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_CATALOG " \
+               "LIKE '%s' AND TABLE_SCHEMA LIKE '%s'" % (catalog, schema)
+        if expression:
+            stmt += " AND TABLE_NAME LIKE '%s'" % expression
+        for row in self.execute(stmt).rows(50):
+            yield SQLTable(self, catalog=row[0], schema=row[1], name=row[2], type=row[3], object_id=row[4])
+
+    def table(self, name: str, catalog: str = "%%", schema: str = "%%"):
+        for t in self.tables(catalog, schema, name):
+            return t
+        raise ValueError("Cannot find table [%s].[%s].[%s]" % (catalog, schema, name))
+
+    def views(self, catalog: str = "%%", schema: str = "%%", expression: Optional[str] = None):
+        stmt = "SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, OBJECT_ID('[' + TABLE_CATALOG + '].[' + " \
+               "TABLE_SCHEMA + '].[' + TABLE_NAME + ']') as oid FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_CATALOG " \
+               "LIKE '%s' AND TABLE_SCHEMA LIKE '%s'" % (catalog, schema)
+        if expression:
+            stmt += " AND TABLE_NAME LIKE '%s'" % expression
+        for row in self.execute(stmt).rows(50):
+            yield SQLView(self, catalog=row[0], schema=row[1], name=row[2], type="VIEW", object_id=row[3])
+
+    def view(self, name: str, catalog: str = "%%", schema: str = "%%"):
+        for t in self.views(catalog, schema, name):
+            return t
+        raise ValueError("Cannot find view [%s].[%s].[%s]" % (catalog, schema, name))
+
+    def table_or_view(self, name: str, catalog: str = "%%", schema: str = "%%"):
+        for t in self.tables(catalog, schema, name):
+            return t
+        for t in self.views(catalog, schema, name):
+            return t
+        raise ValueError("Cannot find table / view [%s].[%s].[%s]" % (catalog, schema, name))
+
+    def safe_table_or_view(self, table: Union[tuple[str, str, str]]):
         if isinstance(table, SQLTable):
             return table
         elif isinstance(table, str):
-            return self.connection.table_or_view(table)
+            return self.table_or_view(table)
         else:
             catalog, schema, name = table
-            return self.connection.table_or_view(name, schema=schema, catalog=catalog)
+            return self.table_or_view(name, schema=schema, catalog=catalog)
 
     # Inserts
     # INSERT INTO VALUES
@@ -373,7 +411,7 @@ class Cursor(ABC):
                     **bulk_options
                 )
         else:
-            table = self.table_or_view(table)
+            table = self.safe_table_or_view(table)
 
             if cast:
                 data = cast_arrow(data, table.schema_arrow, safe, fill_empty=True, drop=False)
@@ -435,7 +473,7 @@ class Cursor(ABC):
         delayed_check_constraints: bool = False,
         **insert_options: dict[str, Union[str, int, bool]]
     ):
-        table = self.table_or_view(table)
+        table = self.safe_table_or_view(table)
 
         if delayed_check_constraints or not check_constraints:
             self.disable_table_all_constraints(table)
@@ -529,7 +567,7 @@ class Cursor(ABC):
         :return: insert_arrow rtype
         """
         if isinstance(source, ParquetFile):
-            table = self.table_or_view(table)
+            table = self.safe_table_or_view(table)
 
             if exclude_columns:
                 exclude_columns = [get_field(source.schema_arrow, _).name for _ in exclude_columns]
@@ -631,7 +669,7 @@ class Cursor(ABC):
         :param file_inspector: Callable[[FileInfo], None]
         :param insert_parquet_file_options: other self.insert_parquet_file options
         """
-        table = self.table_or_view(table)
+        table = self.safe_table_or_view(table)
 
         for ofs in filesystem.get_file_info(
             FileSelector(base_dir, allow_not_found=allow_not_found, recursive=recursive)
@@ -782,3 +820,6 @@ from sys.foreign_keys fk
     def disable_table_all_constraints(self, table: "msa.table.SQLTable"):
         self.execute("ALTER TABLE %s NOCHECK CONSTRAINT ALL" % table.full_name)
         self.commit()
+
+
+Cursor.insert_parquet_dir.__annotations__.update(Cursor.insert_parquet_file.__annotations__)

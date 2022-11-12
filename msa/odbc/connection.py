@@ -69,12 +69,16 @@ class PyODBCConnection(Abstract):
     def rollback(self) -> None:
         self.raw.rollback()
 
-    def cursor(self, fast_executemany: bool = True, *args, **kwargs) -> PyODBCCursor:
+    def cursor(self, fast_executemany: bool = True, nocount: bool = True) -> PyODBCCursor:
         # reconnect if closed
-        return self.server.connect(timeout=self.timeout).cursor() if self.closed else PyODBCCursor(
+        return self.server.connect(timeout=self.timeout).cursor(
+            fast_executemany=fast_executemany,
+            nocount=nocount
+        ) if self.closed else PyODBCCursor(
             self,
-            self.raw.cursor(*args, **kwargs),
-            fast_executemany=fast_executemany
+            self.raw.cursor(),
+            fast_executemany=fast_executemany,
+            nocount=nocount
         )
 
     @property

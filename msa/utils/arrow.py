@@ -287,7 +287,6 @@ def iter_dir_files(
     fs: FileSystem,
     path: str,
     allow_not_found: bool = False,
-    filter_file: Callable[[FileInfo], bool] = lambda x: False
 ) -> Generator[FileInfo, None, None]:
     for ofs in fs.get_file_info(
         FileSelector(path, allow_not_found=allow_not_found, recursive=False)
@@ -295,8 +294,7 @@ def iter_dir_files(
         # <FileInfo for 'path': type=FileType.Directory>
         # or <FileInfo for 'path': type=FileType.File, size=0>
         if ofs.is_file:
-            if not filter_file(ofs):
-                yield ofs
+            yield ofs
         elif ofs.type == FileType.Directory:
-            for file in iter_dir_files(fs, ofs.path, allow_not_found, filter_file):
+            for file in iter_dir_files(fs, ofs.path, allow_not_found):
                 yield file

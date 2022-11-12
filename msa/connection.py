@@ -39,38 +39,21 @@ class Connection(ABC):
 
     # table
     def tables(self, catalog: str = "%%", schema: str = "%%", expression: Optional[str] = None):
-        stmt = "SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, OBJECT_ID('[' + TABLE_CATALOG + '].[' + " \
-               "TABLE_SCHEMA + '].[' + TABLE_NAME + ']') as oid FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_CATALOG " \
-               "LIKE '%s' AND TABLE_SCHEMA LIKE '%s'" % (catalog, schema)
-        if expression:
-            stmt += " AND TABLE_NAME LIKE '%s'" % expression
         with self.cursor() as c:
-            for row in c.execute(stmt).fetchall():
-                yield SQLTable(self, catalog=row[0], schema=row[1], name=row[2], type=row[3], object_id=row[4])
+            return c.tables(catalog, schema, expression)
 
-    def table(self, name: str, catalog: str = "master", schema: str = "dbo"):
-        for t in self.tables(catalog, schema, name):
-            return t
-        raise ValueError("Cannot find table [%s].[%s].[%s]" % (catalog, schema, name))
+    def table(self, name: str, catalog: str = "%%", schema: str = "%%"):
+        with self.cursor() as c:
+            return c.table(name, catalog, schema)
 
     def views(self, catalog: str = "%%", schema: str = "%%", expression: Optional[str] = None):
-        stmt = "SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, OBJECT_ID('[' + TABLE_CATALOG + '].[' + " \
-               "TABLE_SCHEMA + '].[' + TABLE_NAME + ']') as oid FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_CATALOG " \
-               "LIKE '%s' AND TABLE_SCHEMA LIKE '%s'" % (catalog, schema)
-        if expression:
-            stmt += " AND TABLE_NAME LIKE '%s'" % expression
         with self.cursor() as c:
-            for row in c.execute(stmt).fetchall():
-                yield SQLView(self, catalog=row[0], schema=row[1], name=row[2], type="VIEW", object_id=row[3])
+            return c.views(catalog, schema, expression)
 
-    def view(self, name: str, catalog: str = "master", schema: str = "dbo"):
-        for t in self.views(catalog, schema, name):
-            return t
-        raise ValueError("Cannot find view [%s].[%s].[%s]" % (catalog, schema, name))
+    def view(self, name: str, catalog: str = "%%", schema: str = "%%"):
+        with self.cursor() as c:
+            return c.view(name, catalog, schema)
 
     def table_or_view(self, name: str, catalog: str = "%%", schema: str = "%%"):
-        for t in self.tables(catalog, schema, name):
-            return t
-        for t in self.views(catalog, schema, name):
-            return t
-        raise ValueError("Cannot find table / view [%s].[%s].[%s]" % (catalog, schema, name))
+        with self.cursor() as c:
+            return c.table_or_view(name, catalog, schema)

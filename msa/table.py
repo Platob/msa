@@ -20,7 +20,6 @@ except ImportError:
             pass
 
 from .config import DEFAULT_SAFE_MODE, DEFAULT_ARROW_BATCH_ROW_SIZE
-from .cursor import Cursor
 from .utils import mssql_column_to_pyarrow_field
 
 TABLE_TYPE_COLUMNS_STATEMENT = {
@@ -42,7 +41,7 @@ class SQLTable:
 
     def __init__(
         self,
-        connection: "msa.Connection",
+        cursor: "Cursor",
         catalog: str,
         schema: str,
         name: str,
@@ -52,7 +51,7 @@ class SQLTable:
     ):
         self.__schema_arrow = schema_arrow
 
-        self.connection = connection
+        self.cursor = cursor
         self.catalog = catalog
         self.schema = schema
         self.name = name
@@ -77,6 +76,19 @@ class SQLTable:
         return self.full_name
 
     @property
+    def cursor(self):
+        if self.__cursor.closed:
+            self.__cursor = self.__cursor.connection.cursor(
+                nocount=self.__cursor.nocount
+            )
+        return self.__cursor
+
+    @cursor.setter
+    def cursor(self, cursor):
+        from .cursor import Cursor
+        self.__cursor: Cursor = cursor
+
+    @property
     def full_name(self):
         return "[%s].[%s].[%s]" % (
             self.catalog, self.schema, self.name
@@ -86,21 +98,12 @@ class SQLTable:
         return self.field(item)
 
     @property
-    def connection(self):
-        return self._connection
-
-    @connection.setter
-    def connection(self, connection):
-        from .connection import Connection
-        self._connection: Connection = connection
-
-    @property
     def schema_arrow(self) -> Schema:
         if self.__schema_arrow is None:
             self.__schema_arrow = schema(
                 [
                     mssql_column_to_pyarrow_field(row, column_type="table.column")
-                    for row in self.connection.cursor().execute(
+                    for row in self.cursor.execute(
                         TABLE_TYPE_COLUMNS_STATEMENT[self.type] % self.object_id
                     ).fetchall()
                 ],
@@ -129,46 +132,42 @@ class SQLTable:
 
     @property
     def indexes(self) -> dict[str, "SQLIndex"]:
-        with self.connection.cursor() as cursor:
-            return {
-                row[1]: SQLIndex(
-                    self,
-                    index_id=row[0],
-                    name=row[1],
-                    columns=row[2].split("||"),
-                    type=row[3],
-                    unique=row[4]
-                )
-                for row in cursor.execute("""select i.index_id, i.[name],
-    substring(column_names, 1, len(column_names)-2) as [columns],
-    i.type_desc,
-    i.is_unique
+        return {
+            row[1]: SQLIndex(
+                self,
+                index_id=row[0],
+                name=row[1],
+                columns=row[2].split("||"),
+                type=row[3],
+                unique=row[4]
+            )
+            for row in self.cursor.execute("""select i.index_id, i.[name],
+substring(column_names, 1, len(column_names)-2) as [columns],
+i.type_desc,
+i.is_unique
 from sys.objects t
 inner join sys.indexes i on t.object_id = %s and t.object_id = i.object_id
 cross apply (select col.[name] + '||' from sys.index_columns ic inner join sys.columns col
-    on ic.object_id = col.object_id
-    and ic.column_id = col.column_id
+on ic.object_id = col.object_id
+and ic.column_id = col.column_id
 where ic.object_id = t.object_id
-    and ic.index_id = i.index_id
-    order by key_ordinal
-    for xml path ('') ) D (column_names)
+and ic.index_id = i.index_id
+order by key_ordinal
+for xml path ('') ) D (column_names)
 where t.is_ms_shipped <> 1
 and index_id > 0""" % self.object_id).fetchall()
-            }
+        }
 
     def truncate(self):
-        with self.connection.cursor() as c:
-            c.execute(f"TRUNCATE TABLE %s" % self.full_name)
-            c.commit()
+        self.cursor.execute(f"TRUNCATE TABLE %s" % self.full_name)
+        self.cursor.commit()
 
     def drop(self):
-        with self.connection.cursor() as c:
-            c.execute(f"DROP TABLE %s" % self.full_name)
-            c.commit()
+        self.cursor.execute(f"DROP TABLE %s" % self.full_name)
+        self.cursor.commit()
 
     def count(self) -> int:
-        with self.connection.cursor() as c:
-            return c.execute(f"select count(*) from %s" % self.full_name).fetchall()[0][0]
+        return self.cursor.execute(f"select count(*) from %s" % self.full_name).fetchone()[0]
 
     def insert_pylist(
         self,
@@ -176,7 +175,6 @@ and index_id > 0""" % self.object_id).fetchall()
         columns: list[str],
         stmt: str = "",
         commit: bool = True,
-        cursor: Optional[Cursor] = None,
         tablock: bool = False,
         commit_size: int = 1
     ):
@@ -193,27 +191,15 @@ and index_id > 0""" % self.object_id).fetchall()
             Must be 0 > batch_size > 1001 and len(columns) * commit_size <= 2100
         :return: None
         """
-        if cursor is None:
-            with self.connection.cursor() as c:
-                return c.insert_pylist(
-                    self,
-                    rows,
-                    columns,
-                    stmt,
-                    commit=commit,
-                    tablock=tablock,
-                    commit_size=commit_size
-                )
-        else:
-            return cursor.insert_pylist(
-                self,
-                rows,
-                columns,
-                stmt,
-                commit=commit,
-                tablock=tablock,
-                commit_size=commit_size
-            )
+        return self.cursor.insert_pylist(
+            self,
+            rows,
+            columns,
+            stmt,
+            commit=commit,
+            tablock=tablock,
+            commit_size=commit_size
+        )
 
     def insert_arrow(
         self,
@@ -223,44 +209,27 @@ and index_id > 0""" % self.object_id).fetchall()
         stmt: str = "",
         commit: bool = True,
         bulk: bool = False,
-        cursor: Optional[Cursor] = None,
         tablock: bool = False,
         commit_size: int = 1,
         **insert_options: dict[str, Union[str, int, bool]]
     ):
-        if cursor is None:
-            with self.connection.cursor() as cursor:
-                return cursor.insert_arrow(
-                    self,
-                    data,
-                    cast=cast,
-                    safe=safe,
-                    stmt=stmt,
-                    commit=commit,
-                    bulk=bulk,
-                    tablock=tablock,
-                    commit_size=commit_size,
-                    **insert_options
-                )
-        else:
-            return cursor.insert_arrow(
-                self,
-                data,
-                cast=cast,
-                safe=safe,
-                stmt=stmt,
-                commit=commit,
-                bulk=bulk,
-                tablock=tablock,
-                commit_size=commit_size,
-                **insert_options
-            )
+        return self.cursor.insert_arrow(
+            self,
+            data,
+            cast=cast,
+            safe=safe,
+            stmt=stmt,
+            commit=commit,
+            bulk=bulk,
+            tablock=tablock,
+            commit_size=commit_size,
+            **insert_options
+        )
 
     def bulk_insert_file(
         self,
         file: Union[str, Path],
         commit: bool = True,
-        cursor: Optional[Cursor] = None,
         file_format: str = "CSV",
         field_terminator: str = ",",
         row_terminator: str = "\n",
@@ -276,7 +245,6 @@ and index_id > 0""" % self.object_id).fetchall()
 
         :param file:
         :param commit:
-        :param cursor:
         :param file_format:
         :param field_terminator: separator, default = ','
         :param row_terminator:
@@ -288,37 +256,20 @@ and index_id > 0""" % self.object_id).fetchall()
         :param other_options: string to append: WITH (FORMAT = 'file_format', %s) % other_options
         :return: None
         """
-        if cursor is None:
-            with self.connection.cursor() as c:
-                return c.bulk_insert_file(
-                    self,
-                    file,
-                    commit,
-                    file_format,
-                    field_terminator=field_terminator,
-                    row_terminator=row_terminator,
-                    field_quote=field_quote,
-                    datafile_type=datafile_type,
-                    first_row=first_row,
-                    code_page=code_page,
-                    tablock=tablock,
-                    other_options=other_options
-                )
-        else:
-            cursor.bulk_insert_file(
-                self,
-                file,
-                commit,
-                file_format,
-                field_terminator=field_terminator,
-                row_terminator=row_terminator,
-                field_quote=field_quote,
-                datafile_type=datafile_type,
-                first_row=first_row,
-                code_page=code_page,
-                tablock=tablock,
-                other_options=other_options
-            )
+        self.cursor.bulk_insert_file(
+            self,
+            file,
+            commit,
+            file_format,
+            field_terminator=field_terminator,
+            row_terminator=row_terminator,
+            field_quote=field_quote,
+            datafile_type=datafile_type,
+            first_row=first_row,
+            code_page=code_page,
+            tablock=tablock,
+            other_options=other_options
+        )
 
     def bulk_insert_arrow(
         self,
@@ -327,39 +278,23 @@ and index_id > 0""" % self.object_id).fetchall()
         cast: bool = True,
         safe: bool = DEFAULT_SAFE_MODE,
         commit: bool = True,
-        cursor: Optional[Cursor] = None,
         delimiter: str = ",",
         file_format: str = "CSV",
         tablock: bool = False,
         **bulk_options: dict[str, str]
     ):
-        if cursor is None:
-            with self.connection.cursor() as cursor:
-                return cursor.bulk_insert_arrow(
-                    self,
-                    data,
-                    base_dir=base_dir,
-                    cast=cast,
-                    safe=safe,
-                    commit=commit,
-                    delimiter=delimiter,
-                    file_format=file_format,
-                    tablock=tablock,
-                    **bulk_options
-                )
-        else:
-            cursor.bulk_insert_arrow(
-                self,
-                data,
-                base_dir=base_dir,
-                cast=cast,
-                safe=safe,
-                commit=commit,
-                delimiter=delimiter,
-                file_format=file_format,
-                tablock=tablock,
-                **bulk_options
-            )
+        self.cursor.bulk_insert_arrow(
+            self,
+            data,
+            base_dir=base_dir,
+            cast=cast,
+            safe=safe,
+            commit=commit,
+            delimiter=delimiter,
+            file_format=file_format,
+            tablock=tablock,
+            **bulk_options
+        )
 
     # extensions
     # Parquet
@@ -371,7 +306,6 @@ and index_id > 0""" % self.object_id).fetchall()
         cast: bool = True,
         safe: bool = DEFAULT_SAFE_MODE,
         commit: bool = True,
-        cursor: Optional[Cursor] = None,
         filesystem: FileSystem = LocalFileSystem(),
         coerce_int96_timestamp_unit: str = None,
         use_threads: bool = True,
@@ -388,7 +322,6 @@ and index_id > 0""" % self.object_id).fetchall()
         :param cast:
         :param safe:
         :param commit:
-        :param cursor:
         :param filesystem:
         :param coerce_int96_timestamp_unit:
         :param use_threads:
@@ -396,37 +329,20 @@ and index_id > 0""" % self.object_id).fetchall()
         :param insert_arrow: self.insert_arrow options
         :return: insert_arrow rtype
         """
-        if cursor is None:
-            with self.connection.cursor() as c:
-                c.insert_parquet_file(
-                    self,
-                    source=source,
-                    batch_size=batch_size,
-                    buffer_size=buffer_size,
-                    cast=cast,
-                    safe=safe,
-                    commit=commit,
-                    filesystem=filesystem,
-                    coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
-                    use_threads=use_threads,
-                    exclude_columns=exclude_columns,
-                    **insert_arrow
-                )
-        else:
-            cursor.insert_parquet_file(
-                self,
-                source=source,
-                batch_size=batch_size,
-                buffer_size=buffer_size,
-                cast=cast,
-                safe=safe,
-                commit=commit,
-                filesystem=filesystem,
-                coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
-                use_threads=use_threads,
-                exclude_columns=exclude_columns,
-                **insert_arrow
-            )
+        self.cursor.insert_parquet_file(
+            self,
+            source=source,
+            batch_size=batch_size,
+            buffer_size=buffer_size,
+            cast=cast,
+            safe=safe,
+            commit=commit,
+            filesystem=filesystem,
+            coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
+            use_threads=use_threads,
+            exclude_columns=exclude_columns,
+            **insert_arrow
+        )
 
     def insert_parquet_dir(
         self,
@@ -438,7 +354,6 @@ and index_id > 0""" % self.object_id).fetchall()
         cast: bool = True,
         safe: bool = DEFAULT_SAFE_MODE,
         commit: bool = True,
-        cursor: Optional[Cursor] = None,
         filesystem: FileSystem = LocalFileSystem(),
         coerce_int96_timestamp_unit: str = None,
         use_threads: bool = True,
@@ -455,7 +370,6 @@ and index_id > 0""" % self.object_id).fetchall()
         :param cast:
         :param safe:
         :param commit:
-        :param cursor:
         :param filesystem: pyarrow FileSystem object
         :param coerce_int96_timestamp_unit:
         :param use_threads:
@@ -475,7 +389,6 @@ and index_id > 0""" % self.object_id).fetchall()
                         cast=cast,
                         safe=safe,
                         commit=commit,
-                        cursor=cursor,
                         filesystem=filesystem,
                         coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
                         use_threads=use_threads,
@@ -490,7 +403,6 @@ and index_id > 0""" % self.object_id).fetchall()
                     cast=cast,
                     safe=safe,
                     commit=commit,
-                    cursor=cursor,
                     filesystem=filesystem,
                     coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
                     use_threads=use_threads,
@@ -502,14 +414,12 @@ and index_id > 0""" % self.object_id).fetchall()
 class SQLView(SQLTable):
 
     def truncate(self):
-        with self.connection.cursor() as c:
-            c.execute(f"TRUNCATE VIEW [%s].[%s]" % (self.schema, self.name))
-            c.commit()
+        self.cursor.execute(f"TRUNCATE VIEW [%s].[%s]" % (self.schema, self.name))
+        self.cursor.commit()
 
     def drop(self):
-        with self.connection.cursor() as c:
-            c.execute(f"DROP VIEW [%s].[%s]" % (self.schema, self.name))
-            c.commit()
+        self.cursor.execute(f"DROP VIEW [%s].[%s]" % (self.schema, self.name))
+        self.cursor.commit()
 
 
 class SQLIndex:
@@ -532,8 +442,7 @@ class SQLIndex:
 
     @property
     def disabled(self) -> bool:
-        with self.connection.cursor() as c:
-            return bool(c.execute("""select is_disabled from sys.objects t
+        return bool(self.cursor.execute("""select is_disabled from sys.objects t
 inner join sys.indexes i on t.object_id = %s and t.object_id = i.object_id
 where t.is_ms_shipped <> 1 and index_id = %s""" % (self.table.object_id, self.index_id)).fetchall()[0][0])
 
@@ -556,9 +465,9 @@ where t.is_ms_shipped <> 1 and index_id = %s""" % (self.table.object_id, self.in
         return self.name
 
     @property
-    def connection(self):
-        return self.table.connection
+    def cursor(self):
+        return self.table.cursor
 
     def drop(self):
-        with self.connection.cursor() as c:
-            c.execute("DROP INDEX %s.[%s]" % (self.table.full_name, self.name))
+        self.cursor.execute("DROP INDEX %s.[%s]" % (self.table.full_name, self.name))
+        self.cursor.commit()

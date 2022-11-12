@@ -71,7 +71,7 @@ class MSSQL:
         table: Union[str, tuple[str, str, str], SQLTable],
         base_dir: str,
         filesystem: FileSystem = LocalFileSystem(),
-        filter_file: Callable[[FileInfo], bool] = lambda x: False,
+        filter_file: Callable[[FileInfo], bool] = lambda x: True,
         cursor_wrapper: Callable = return_iso,
         result_wrapper: Callable = return_iso,
         concurrency: ThreadPoolExecutor = ThreadPoolExecutor(os.cpu_count()),
@@ -81,7 +81,7 @@ class MSSQL:
         # persist table data
         if not isinstance(table, SQLTable):
             with self.cursor() as c:
-                table = c.table_or_view(table)
+                table = c.safe_table_or_view(table)
         table = (table.catalog, table.schema, table.name)
 
         return self.execute(
@@ -92,7 +92,7 @@ class MSSQL:
             timeout=timeout,
             arguments=[
                 ([table, ofs.path], insert_parquet_file)
-                for ofs in iter_dir_files(filesystem, base_dir, filter_file)
-                if ofs.size > 0
+                for ofs in iter_dir_files(filesystem, base_dir)
+                if filter_file(ofs) and ofs.size > 0
             ]
         )
