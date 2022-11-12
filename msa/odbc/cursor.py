@@ -26,10 +26,10 @@ class PyODBCCursor(AbstractCursor):
         raw: Cursor,
         fast_executemany: bool = True
     ):
-        super(PyODBCCursor, self).__init__(connection=connection)
         self.raw = raw
-
         self.raw.fast_executemany = fast_executemany
+
+        super(PyODBCCursor, self).__init__(connection=connection)
 
         self.__schema = None
 

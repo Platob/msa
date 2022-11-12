@@ -25,8 +25,8 @@ class MSSQL:
     def connect(self, **kwargs) -> Connection:
         raise NotImplemented
 
-    def cursor(self, **kwargs) -> Cursor:
-        return self.connect(**kwargs).cursor()
+    def cursor(self, connect: dict = {}, **kwargs) -> Cursor:
+        return self.connect(**connect).cursor(**kwargs)
 
     def cursor_execute(
         self,

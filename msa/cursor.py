@@ -112,10 +112,12 @@ class Cursor(ABC):
     def safe_commit_size(commit_size: int, columns_len: int):
         return int(min(columns_len * commit_size, 2099) / columns_len)
 
-    def __init__(self, connection: "Connection"):
+    def __init__(self, connection: "Connection", nocount: bool = True):
         self.closed = False
 
         self.connection = connection
+
+        self.nocount = nocount
 
     def __enter__(self):
         return self
@@ -670,6 +672,15 @@ from sys.foreign_keys fk
     # config statements
     def set_identity_insert(self, table: "msa.table.SQLTable", on: bool = True):
         self.execute("SET IDENTITY_INSERT %s %s" % (table, "ON" if on else "OFF"))
+
+    @property
+    def nocount(self) -> bool:
+        return self.__nocount
+
+    @nocount.setter
+    def nocount(self, on: bool):
+        self.set_nocount(on)
+        self.__nocount = on
 
     def set_nocount(self, on: bool = True):
         self.execute("SET NOCOUNT %s" % 'ON' if on else 'OFF')

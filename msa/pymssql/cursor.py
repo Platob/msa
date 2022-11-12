@@ -19,8 +19,9 @@ class PyMSSQLCursor(AbstractCursor):
         return self.__schema
 
     def __init__(self, connection: "PyMSSQLConnection", raw: pymssql.Cursor):
-        super(PyMSSQLCursor, self).__init__(connection=connection)
         self.raw = raw
+
+        super(PyMSSQLCursor, self).__init__(connection=connection)
 
         self.__schema = None
 
