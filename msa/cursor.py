@@ -703,19 +703,36 @@ from sys.foreign_keys fk
         self.commit()
 
     def drop_table_index(self, table: "msa.table.SQLTable", name: str):
-        self.execute("DROP INDEX [%s] ON %s" % (name, table.full_name))
+        self.execute("DROP INDEX [%s] ON %s" % (name, table))
         self.commit()
 
     def disable_table_index(self, table: "msa.table.SQLTable", name: str):
-        self.execute("ALTER INDEX [%s] ON %s DISABLE" % (name, table.full_name))
+        self.execute("ALTER INDEX [%s] ON %s DISABLE" % (name, table))
         self.commit()
 
-    def disable_table_all_indexes(self, table: "msa.table.SQLTable"):
-        self.execute("ALTER INDEX ALL ON %s DISABLE" % table.full_name)
+    def disable_table_all_indexes(
+        self,
+        table: "msa.table.SQLTable",
+        except_primary_key: bool = False
+    ):
+        if except_primary_key:
+            return self.disable_table_indexes(
+                table,
+                [name for name in table.indexes.keys() if not name.startswith("PK__")]
+            )
+        else:
+            self.execute("ALTER INDEX ALL ON %s DISABLE" % table)
+            self.commit()
+
+    def disable_table_indexes(self, table: "msa.table.SQLTable", names: list[str]):
+        self.execute(";".join((
+            "ALTER INDEX [%s] ON %s DISABLE" % (name, table)
+            for name in names
+        )))
         self.commit()
 
     def rebuild_table_index(self, table: "msa.table.SQLTable", name: str):
-        self.execute("ALTER INDEX [%s] ON %s REBUILD" % (name, table.full_name))
+        self.execute("ALTER INDEX [%s] ON %s REBUILD" % (name, table))
         self.commit()
 
     def rebuild_table_all_indexes(self, table: "msa.table.SQLTable"):

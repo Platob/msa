@@ -725,6 +725,39 @@ class TableTests(MSSQLTestCase):
                         name="test_index"
                     )
 
+    def test_disable_rebuild_indexes(self):
+        with self.server.connect() as connection:
+            with connection.cursor() as c:
+                c.create_table_index(
+                    table=self.table,
+                    name="test_index",
+                    columns=["string", "int"]
+                )
+
+                try:
+                    # disable
+                    self.assertEqual(
+                        False,
+                        self.table.indexes["test_index"].disabled
+                    )
+                    c.disable_table_indexes(self.table, names=["test_index"])
+                    self.assertEqual(
+                        True,
+                        self.table.indexes["test_index"].disabled
+                    )
+
+                    # rebuild
+                    c.rebuild_table_all_indexes(self.table)
+                    self.assertEqual(
+                        False,
+                        self.table.indexes["test_index"].disabled
+                    )
+                finally:
+                    c.drop_table_index(
+                        table=self.table,
+                        name="test_index"
+                    )
+
     def test_enable_disable_constraints(self):
         with self.server.cursor() as c:
             c.disable_table_all_constraints(self.table)

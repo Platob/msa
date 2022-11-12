@@ -71,7 +71,7 @@ class PyODBCConnection(Abstract):
         )
 
     @property
-    def timeout(self):
+    def timeout(self) -> int:
         return self.raw.timeout
 
     @timeout.setter
