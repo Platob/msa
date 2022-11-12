@@ -24,12 +24,13 @@ class PyODBCCursor(AbstractCursor):
         self,
         connection: "PyODBCConnection",
         raw: Cursor,
-        fast_executemany: bool = True
+        fast_executemany: bool = True,
+        nocount: bool = True
     ):
         self.raw = raw
         self.raw.fast_executemany = fast_executemany
 
-        super(PyODBCCursor, self).__init__(connection=connection)
+        super(PyODBCCursor, self).__init__(connection=connection, nocount=nocount)
 
         self.__schema = None
 

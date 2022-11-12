@@ -18,10 +18,15 @@ class PyMSSQLCursor(AbstractCursor):
             self.__schema = [field(_[0], pyarrow.string()) for _ in self.raw.description]
         return self.__schema
 
-    def __init__(self, connection: "PyMSSQLConnection", raw: pymssql.Cursor):
+    def __init__(
+        self,
+        connection: "PyMSSQLConnection",
+        raw: pymssql.Cursor,
+        nocount: bool = True
+    ):
         self.raw = raw
 
-        super(PyMSSQLCursor, self).__init__(connection=connection)
+        super(PyMSSQLCursor, self).__init__(connection=connection, nocount=nocount)
 
         self.__schema = None
 
