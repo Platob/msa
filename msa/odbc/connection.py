@@ -4,7 +4,7 @@ import struct
 from datetime import datetime, timedelta, timezone
 
 import numpy
-import pymssql
+import pyodbc
 from pyodbc import SQL_TYPE_TIMESTAMP
 
 from msa import Connection as Abstract
@@ -40,17 +40,27 @@ def handle_datetime(dto_value, d1900_1_1=datetime(1900, 1, 1)):
 
 class PyODBCConnection(Abstract):
 
-    def __init__(self, server: "PyMSSQL", raw: pymssql.Connection, timeout: int = 0):
+    def __init__(self, server: "PyODBC", raw: pyodbc.Connection, timeout: int = 0):
         super().__init__(server)
         self.raw = raw
 
         self.raw.add_output_converter(-155, handle_datetime_offset)
         self.raw.add_output_converter(SQL_TYPE_TIMESTAMP, handle_datetime)
-        self.raw.timeout = timeout
+        self.timeout = timeout
+
+    def reconnect(self):
+        self.raw = self.server.connect(timeout=self.timeout).raw
+
+        self.raw.add_output_converter(-155, handle_datetime_offset)
+        self.raw.add_output_converter(SQL_TYPE_TIMESTAMP, handle_datetime)
+
+        self.closed = False
 
     def close(self):
         if not self.closed:
             self.raw.close()
+            del self.raw
+            self.raw = None
         super(PyODBCConnection, self).close()
 
     def commit(self) -> None:
@@ -61,10 +71,10 @@ class PyODBCConnection(Abstract):
 
     def cursor(self, fast_executemany: bool = True, *args, **kwargs) -> PyODBCCursor:
         # reconnect if closed
-        return self.server.connect().cursor(
-            fast_executemany=fast_executemany,
-            *args, **kwargs
-        ) if self.closed else PyODBCCursor(
+        if self.closed:
+            self.reconnect()
+
+        return PyODBCCursor(
             self,
             self.raw.cursor(*args, **kwargs),
             fast_executemany=fast_executemany
@@ -72,8 +82,8 @@ class PyODBCConnection(Abstract):
 
     @property
     def timeout(self) -> int:
-        return self.raw.timeout
+        return self.__timeout
 
     @timeout.setter
     def timeout(self, timeout: int):
-        self.raw.timeout = timeout
+        self.raw.timeout = self.__timeout = timeout

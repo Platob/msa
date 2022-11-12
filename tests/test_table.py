@@ -7,7 +7,7 @@ import tempfile
 import numpy
 import pyarrow
 import pyarrow as pa
-from pyarrow import schema, RecordBatchReader
+from pyarrow import schema, RecordBatchReader, Table
 
 from msa.table import SQLIndex
 from msa.utils import prepare_insert_statement, prepare_insert_batch_statement
@@ -762,3 +762,48 @@ class TableTests(MSSQLTestCase):
         with self.server.cursor() as c:
             c.disable_table_all_constraints(self.table)
             c.enable_table_all_constraints(self.table)
+
+    def test_concurrent_read(self):
+        results = list(
+            self.server.execute(
+                "execute",
+                result_wrapper=lambda x: x.fetch_arrow(),
+                arguments=[
+                    ([f"select * from {self.PYMSA_UNITTEST}"], {}),
+                    ([f"select * from {self.PYMSA_UNITTEST}"], {})
+                ]
+            )
+        )
+        self.assertEqual(
+            [True, True], [isinstance(_, Table) for _ in results]
+        )
+
+    def test_concurrent_write(self):
+        data = pyarrow.Table.from_arrays([
+            pyarrow.array(['data1', 'data1']),
+            pyarrow.array([b"data1", None])
+        ], schema=pyarrow.schema([
+            pyarrow.field("string", pyarrow.string(), nullable=False),
+            pyarrow.field("binary", pyarrow.binary(), nullable=True)
+        ]))
+
+        self.table.truncate()
+        self.table.connection.close()
+
+        list(
+            self.server.execute(
+                "insert_arrow",
+                arguments=[
+                    ([self.table, data], {}),
+                    ([self.table, data], {})
+                ]
+            )
+        )
+
+        self.assertEqual(
+            Table.from_batches([
+                *data.to_batches(),
+                *data.to_batches()
+            ]),
+            self.server.cursor().execute(f"select string, binary from {self.PYMSA_UNITTEST}").fetch_arrow(2)
+        )

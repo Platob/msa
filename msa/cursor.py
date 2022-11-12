@@ -11,7 +11,7 @@ import os
 import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional, Generator, Any, Union
+from typing import Optional, Generator, Any, Union, Callable
 
 import pyarrow.csv as pcsv
 import pyarrow.compute as pc
@@ -590,8 +590,9 @@ class Cursor(ABC):
         coerce_int96_timestamp_unit: str = None,
         use_threads: bool = True,
         exclude_columns: list[str] = (),
+        file_inspector: Optional[Callable[[FileInfo], None]] = None,
         **insert_parquet_file_options: dict
-    ) -> Generator[FileInfo, Any, None]:
+    ):
         """
         Insert data from parquet iterating over files, sub dir files with pyarrow methods
 
@@ -608,6 +609,7 @@ class Cursor(ABC):
         :param coerce_int96_timestamp_unit:
         :param use_threads:
         :param exclude_columns: list of column names to exclude from parquet read
+        :param file_inspector: Callable[[FileInfo], None]
         :param insert_parquet_file_options: other self.insert_parquet_file options
         """
         for ofs in filesystem.get_file_info(
@@ -631,9 +633,10 @@ class Cursor(ABC):
                         exclude_columns=exclude_columns,
                         **insert_parquet_file_options
                     )
-                    yield ofs
+                    if callable(file_inspector):
+                        file_inspector(ofs)
             elif ofs.type == FileType.Directory:
-                for _ in self.insert_parquet_dir(
+                self.insert_parquet_dir(
                     table=table,
                     base_dir=ofs.path,
                     batch_size=batch_size,
@@ -645,9 +648,9 @@ class Cursor(ABC):
                     coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
                     use_threads=use_threads,
                     exclude_columns=exclude_columns,
+                    file_inspector=file_inspector,
                     **insert_parquet_file_options
-                ):
-                    yield _
+                )
 
     # Foreign Keys
     def table_fk(self):
