@@ -13,8 +13,8 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional, Generator, Any, Union, Callable
 
-import pyarrow.csv as pcsv
 import pyarrow.compute as pc
+import pyarrow.csv as pcsv
 from pyarrow import Schema, schema, field, RecordBatch, Table, RecordBatchReader, \
     Array, ChunkedArray, array, TimestampType, Decimal128Type, Decimal256Type, FixedSizeBinaryType, NativeFile
 from pyarrow.fs import FileSystem, LocalFileSystem, FileSelector, FileType, FileInfo
@@ -820,6 +820,3 @@ from sys.foreign_keys fk
     def disable_table_all_constraints(self, table: "msa.table.SQLTable"):
         self.execute("ALTER TABLE %s NOCHECK CONSTRAINT ALL" % table.full_name)
         self.commit()
-
-
-Cursor.insert_parquet_dir.__annotations__.update(Cursor.insert_parquet_file.__annotations__)
