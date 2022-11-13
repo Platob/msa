@@ -270,7 +270,7 @@ class Cursor(ABC):
             return t
         raise ValueError("Cannot find table / view [%s].[%s].[%s]" % (catalog, schema, name))
 
-    def safe_table_or_view(self, table: Union[tuple[str, str, str]]):
+    def safe_table_or_view(self, table: Union[SQLTable, tuple[str, str, str], str]):
         if isinstance(table, SQLTable):
             return table
         elif isinstance(table, str):
