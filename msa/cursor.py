@@ -579,7 +579,7 @@ class Cursor(ABC):
                 input_schema = source.schema_arrow
             input_schema = intersect_schemas(input_schema, table.schema_arrow.names)
 
-            return self.insert_arrow(
+            self.insert_arrow(
                 table=table,
                 data=RecordBatchReader.from_batches(
                     input_schema,
@@ -596,7 +596,7 @@ class Cursor(ABC):
             )
         elif isinstance(source, str):
             with filesystem.open_input_file(source) as f:
-                return self.insert_parquet_file(
+                self.insert_parquet_file(
                     table=table,
                     source=ParquetFile(
                         f,
@@ -614,7 +614,7 @@ class Cursor(ABC):
                     **insert_arrow
                 )
         else:
-            return self.insert_parquet_file(
+            self.insert_parquet_file(
                 table=table,
                 source=ParquetFile(
                     source,
@@ -631,6 +631,7 @@ class Cursor(ABC):
                 exclude_columns=exclude_columns,
                 **insert_arrow
             )
+        return source
 
     def insert_parquet_dir(
         self,
