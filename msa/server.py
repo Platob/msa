@@ -35,7 +35,7 @@ class MSSQL:
     def cursor_execute(
         self,
         method: Union[str, Callable[[Cursor], Any], Callable[[Cursor, Any], Any]],
-        cursor_wrapper: Callable[[Cursor], Any] = return_iso,
+        cursor_wrapper: Callable[[Cursor], Cursor] = return_iso,
         result_wrapper: Callable[[Any], Any] = return_iso,
         arguments: tuple[list, dict] = ()
     ):
