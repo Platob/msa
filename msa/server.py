@@ -84,6 +84,8 @@ class MSSQL:
                 table = c.safe_table_or_view(table)
         table = (table.catalog, table.schema, table.name)
 
+        insert_parquet_file["filesystem"] = filesystem
+
         return self.execute(
             "insert_parquet_file",
             cursor_wrapper=cursor_wrapper,
