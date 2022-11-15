@@ -34,19 +34,23 @@ class MSSQL:
 
     def cursor_execute(
         self,
-        method: str,
+        method: Union[str, Callable[[Cursor], Any], Callable[[Cursor, Any], Any]],
         cursor_wrapper: Callable[[Cursor], Any] = return_iso,
         result_wrapper: Callable[[Any], Any] = return_iso,
         arguments: tuple[list, dict] = ()
     ):
-        if arguments:
-            return result_wrapper(getattr(cursor_wrapper(self.cursor()), method)(*arguments[0], **arguments[1]))
-        else:
-            return result_wrapper(getattr(cursor_wrapper(self.cursor()), method)())
+        with cursor_wrapper(self.cursor()) as cursor:
+            if isinstance(method, str):
+                method = getattr(cursor.__class__, method)
+
+            if arguments:
+                return result_wrapper(method(cursor, *arguments[0], **arguments[1]))
+            else:
+                return result_wrapper(method(cursor))
 
     def execute(
         self,
-        method: str,
+        method: Union[str, Callable[[Cursor, Any], Any]],
         cursor_wrapper: Callable = return_iso,
         result_wrapper: Callable = return_iso,
         concurrency: ThreadPoolExecutor = ThreadPoolExecutor(os.cpu_count()),
