@@ -11,7 +11,7 @@ def prepare_insert_statement(
 ):
     return "INSERT INTO %s%s([%s]) VALUES (%s)" % (
         table_name,
-        "WITH(TABLOCK)" if tablock else "",
+        "WITH(TABLOCKX)" if tablock else "",
         "],[".join(columns),
         ",".join(("?" for _ in range(len(columns))))
     )
@@ -26,7 +26,7 @@ def prepare_insert_batch_statement(
     values = "(%s)" % ",".join(("?" for _ in range(len(columns))))
     return "INSERT INTO %s%s([%s]) VALUES %s" % (
         table_name,
-        "WITH(TABLOCK)" if tablock else "",
+        "WITH(TABLOCKX)" if tablock else "",
         "],[".join(columns),
         ",".join((values for _ in range(commit_size)))
     )

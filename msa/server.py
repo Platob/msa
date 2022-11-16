@@ -89,6 +89,7 @@ class MSSQL:
         concurrency: int = os.cpu_count(),
         timeout: int = None,
         arguments_fetch_size: int = os.cpu_count(),
+        tablock: bool = True,
         **insert_parquet_file
     ):
         # persist table data
@@ -98,6 +99,7 @@ class MSSQL:
         table = (table.catalog, table.schema, table.name)
 
         insert_parquet_file["filesystem"] = filesystem
+        insert_parquet_file["tablock"] = tablock
 
         return self.map(
             "insert_parquet_file",

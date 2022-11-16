@@ -60,6 +60,12 @@ class TableTests(MSSQLTestCase):
             prepare_insert_statement(self.table, ["a", "AbC Column"])
         )
 
+    def test_prepare_insert_statement_tablock(self):
+        self.assertEqual(
+            "INSERT INTO [master].[dbo].[PYMSA_UNITTEST]WITH(TABLOCKX)([a],[AbC Column]) VALUES (?,?)",
+            prepare_insert_statement(self.table, ["a", "AbC Column"], tablock=True)
+        )
+
     def test_prepare_insert_batch_statement(self):
         self.assertEqual(
             "INSERT INTO [master].[dbo].[PYMSA_UNITTEST]([a],[AbC Column]) VALUES (?,?)",
@@ -68,6 +74,12 @@ class TableTests(MSSQLTestCase):
         self.assertEqual(
             "INSERT INTO [master].[dbo].[PYMSA_UNITTEST]([a],[AbC Column]) VALUES (?,?),(?,?),(?,?)",
             prepare_insert_batch_statement(self.table, ["a", "AbC Column"], commit_size=3)
+        )
+
+    def test_prepare_insert_batch_statement_tablock(self):
+        self.assertEqual(
+            "INSERT INTO [master].[dbo].[PYMSA_UNITTEST]WITH(TABLOCKX)([a],[AbC Column]) VALUES (?,?)",
+            prepare_insert_batch_statement(self.table, ["a", "AbC Column"], commit_size=1, tablock=True)
         )
 
     def test_repr(self):
@@ -623,16 +635,16 @@ class TableTests(MSSQLTestCase):
 
         def gen_data(n: int):
             return pyarrow.Table.from_arrays([
-                pyarrow.array(['data%s' % n for _ in range(n)]),
-                pyarrow.array([b"data0" for _ in range(n)])
+                pyarrow.array(['data%s' % _ for _ in range(n)]),
+                pyarrow.array([b"data" for _ in range(n)])
             ], schema=pyarrow.schema([
                 pyarrow.field("string", pyarrow.string(), nullable=False),
                 pyarrow.field("binary", pyarrow.binary(), nullable=True)
             ]))
 
         self.table.truncate()
-        num = 10
-        datas = [gen_data(10 * i) for i in range(num)]
+        num = 100
+        datas = [gen_data(i) for i in range(num)]
 
         with tempfile.TemporaryDirectory() as base_dir:
             for i in range(num):
@@ -643,8 +655,11 @@ class TableTests(MSSQLTestCase):
         for i in range(num):
             batches.extend(datas[i].to_batches())
 
+        expected = Table.from_batches(batches).combine_chunks()
+        expected = expected.take(pa.compute.bottom_k_unstable(expected, sort_keys=["string"], k=len(expected)))
+
         self.assertEqual(
-            Table.from_batches(batches),
+            expected,
             self.server.cursor().execute(
                 f"select string, binary from {self.PYMSA_UNITTEST} order by string"
             ).fetch_arrow()
