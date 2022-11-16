@@ -1,9 +1,11 @@
 __all__ = ["MSSQL"]
 
 import os
+import tqdm
+
 from abc import abstractmethod
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable, Any, Iterable, Union
+from concurrent.futures import ThreadPoolExecutor
+from typing import Callable, Any, Iterable, Union, Sized, Generator
 
 from pyarrow.fs import LocalFileSystem, FileSystem, FileInfo
 
@@ -39,6 +41,10 @@ class MSSQL:
         result_wrapper: Callable[[Any], Any] = return_iso,
         arguments: tuple[list, dict] = ()
     ):
+        if not isinstance(method, str) and not isinstance(method, Cursor):
+            # all in first arg
+            method, cursor_wrapper, result_wrapper, arguments = method
+
         with cursor_wrapper(self.cursor()) as cursor:
             if isinstance(method, str):
                 method = getattr(cursor.__class__, method)
@@ -50,25 +56,27 @@ class MSSQL:
 
     def execute(
         self,
-        method: Union[str, Callable[[Cursor, Any], Any]],
+        method: Union[str, Callable],
         cursor_wrapper: Callable = return_iso,
         result_wrapper: Callable = return_iso,
-        concurrency: ThreadPoolExecutor = ThreadPoolExecutor(os.cpu_count()),
+        concurrency: int = os.cpu_count(),
         arguments: Iterable[tuple[list, dict]] = (),
+        arguments_fetch_size: int = os.cpu_count(),
         timeout: int = None
-    ):
-        return (
-            task.result()
-            for task in as_completed([
-                concurrency.submit(
+    ) -> Generator[Any, None, None]:
+        with ThreadPoolExecutor(concurrency) as pool:
+            for _ in tqdm.tqdm(
+                pool.map(
                     self.cursor_execute,
-                    method=method,
-                    cursor_wrapper=cursor_wrapper,
-                    result_wrapper=result_wrapper,
-                    arguments=argument
-                ) for argument in arguments
-            ], timeout=timeout)
-        )
+                    [
+                        (method, cursor_wrapper, result_wrapper, arg) for arg in arguments
+                    ],
+                    timeout=timeout,
+                    chunksize=arguments_fetch_size
+                ),
+                total=len(arguments) if isinstance(arguments, Sized) else None
+            ):
+                yield _
 
     def insert_parquet_dir(
         self,
@@ -78,8 +86,9 @@ class MSSQL:
         filter_file: Callable[[FileInfo], bool] = lambda x: True,
         cursor_wrapper: Callable = return_iso,
         result_wrapper: Callable = return_iso,
-        concurrency: ThreadPoolExecutor = ThreadPoolExecutor(os.cpu_count()),
+        concurrency: int = os.cpu_count(),
         timeout: int = None,
+        arguments_fetch_size: int = os.cpu_count(),
         **insert_parquet_file
     ):
         # persist table data
@@ -90,16 +99,16 @@ class MSSQL:
 
         insert_parquet_file["filesystem"] = filesystem
 
-        for _ in self.execute(
+        return self.execute(
             "insert_parquet_file",
             cursor_wrapper=cursor_wrapper,
             result_wrapper=result_wrapper,
             concurrency=concurrency,
+            arguments_fetch_size=arguments_fetch_size,
             timeout=timeout,
             arguments=[
                 ([table, ofs.path], insert_parquet_file)
                 for ofs in iter_dir_files(filesystem, base_dir)
                 if filter_file(ofs) and ofs.size > 0
             ]
-        ):
-            pass
+        )
