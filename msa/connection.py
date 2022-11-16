@@ -34,7 +34,7 @@ class Connection(ABC):
         raise NotImplemented
 
     @abstractmethod
-    def cursor(self) -> Cursor:
+    def cursor(self, *args, **kwargs) -> Cursor:
         raise NotImplemented
 
     # table

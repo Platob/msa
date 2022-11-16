@@ -1,6 +1,7 @@
 __all__ = [
     "pyodbc_description_to_pyarrow_field",
-    "mssql_column_to_pyarrow_field"
+    "mssql_column_to_pyarrow_field",
+    "return_iso"
 ]
 
 import datetime
@@ -10,6 +11,11 @@ from typing import Optional
 import pyarrow
 import pyarrow as pa
 from pyarrow import Field, field
+
+
+def return_iso(o):
+    return o
+
 
 STRING = UTF8 = pa.string()
 LARGE_STRING = pa.large_string()

@@ -10,7 +10,7 @@ __all__ = [
 ]
 
 import datetime
-from typing import Union, Iterable, Generator, Optional, Callable
+from typing import Union, Iterable, Generator, Optional, Callable, Sized
 
 import pyarrow
 import pyarrow as pa
@@ -260,7 +260,7 @@ def cast_arrow(
         data = cast_batch(data, schema, safe, fill_empty, drop)
         return RecordBatchReader.from_batches(data.schema, data.to_batches())
     elif drop:
-        if isinstance(data, (list, tuple)):
+        if isinstance(data, Sized):
             if len(data) == 0:
                 data = RecordBatchReader.from_batches(schema, [])
             else:

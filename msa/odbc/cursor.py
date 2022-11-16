@@ -47,7 +47,7 @@ class PyODBCCursor(AbstractCursor):
 
     def close(self) -> None:
         if not self.closed:
-            self.raw.close()
+            # self.raw.close() pyodbc close it
             super(PyODBCCursor, self).close()
 
     def execute(self, sql: str, *args, **kwargs) -> "PyODBCCursor":

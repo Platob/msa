@@ -9,14 +9,11 @@ from typing import Callable, Any, Iterable, Union, Sized, Generator
 
 from pyarrow.fs import LocalFileSystem, FileSystem, FileInfo
 
-from msa.connection import Connection
-from msa.cursor import Cursor
+from .connection import Connection
+from .cursor import Cursor
 from .table import SQLTable
-from msa.utils.arrow import iter_dir_files
-
-
-def return_iso(o):
-    return o
+from .utils.arrow import iter_dir_files
+from .utils.metadata import return_iso
 
 
 class MSSQL:
@@ -108,9 +105,9 @@ class MSSQL:
             concurrency=concurrency,
             arguments_fetch_size=arguments_fetch_size,
             timeout=timeout,
-            arguments=[
+            arguments=(
                 ([table, ofs.path], insert_parquet_file)
                 for ofs in iter_dir_files(filesystem, base_dir)
                 if filter_file(ofs) and ofs.size > 0
-            ]
+            )
         )

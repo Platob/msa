@@ -20,7 +20,7 @@ from pyarrow import Schema, schema, field, RecordBatch, Table, RecordBatchReader
 from pyarrow.fs import FileSystem, LocalFileSystem, FileSelector, FileType, FileInfo
 
 try:
-    from pyarrow.parquet import ParquetFile
+    from pyarrow.parquet import ParquetFile, read_table
 except ImportError:
     class ParquetFile:
         def __enter__(self):
@@ -31,7 +31,7 @@ except ImportError:
 
 from .table import SQLView, SQLTable
 from .config import DEFAULT_BATCH_ROW_SIZE, DEFAULT_SAFE_MODE, DEFAULT_ARROW_BATCH_ROW_SIZE
-from .utils import prepare_insert_batch_statement, prepare_insert_statement
+from .utils import prepare_insert_batch_statement, prepare_insert_statement, return_iso
 from .utils.typing import ArrowData
 from .utils.arrow import cast_arrow, FLOAT64, LARGE_BINARY, BINARY, LARGE_STRING, STRING, TIMES, \
     TIMEUS, TIMEMS, TIMENS, intersect_schemas, get_field
@@ -471,6 +471,7 @@ class Cursor(ABC):
         commit_size: int = 1,
         check_constraints: bool = True,
         delayed_check_constraints: bool = False,
+        batch_apply: Callable[[RecordBatch], RecordBatch] = return_iso,
         **insert_options: dict[str, Union[str, int, bool]]
     ):
         table = self.safe_table_or_view(table)
@@ -494,7 +495,7 @@ class Cursor(ABC):
             if isinstance(data, (RecordBatch, Table)):
                 return self.insert_pylist(
                     table,
-                    [tuple(row.values()) for row in prepare_insert_batch(data).to_pylist()],
+                    [tuple(row.values()) for row in prepare_insert_batch(batch_apply(data)).to_pylist()],
                     data.schema.names,
                     stmt=stmt,
                     commit=commit,
@@ -510,7 +511,7 @@ class Cursor(ABC):
                 for batch in data:
                     self.insert_pylist(
                         table,
-                        [tuple(row.values()) for row in prepare_insert_batch(batch).to_pylist()],
+                        [tuple(row.values()) for row in prepare_insert_batch(batch_apply(batch)).to_pylist()],
                         batch.schema.names,
                         stmt=stmt,
                         commit=commit,
@@ -521,7 +522,7 @@ class Cursor(ABC):
                 for batch in data:
                     self.insert_pylist(
                         table,
-                        [tuple(row.values()) for row in prepare_insert_batch(batch).to_pylist()],
+                        [tuple(row.values()) for row in prepare_insert_batch(batch_apply(batch)).to_pylist()],
                         batch.schema.names,
                         stmt=stmt,
                         commit=commit,
@@ -546,6 +547,7 @@ class Cursor(ABC):
         coerce_int96_timestamp_unit: str = None,
         use_threads: bool = True,
         exclude_columns: list[str] = (),
+        file_filters: Optional[Union[list[list[tuple]], list[tuple]]] = None,
         **insert_arrow: dict
     ):
         """
@@ -563,6 +565,8 @@ class Cursor(ABC):
         :param coerce_int96_timestamp_unit:
         :param use_threads:
         :param exclude_columns: list of column names to exclude from parquet read
+        :param file_filters: pyarrow.parquet.read_table filters option
+            See https://arrow.apache.org/docs/python/generated/pyarrow.parquet.read_table.html
         :param insert_arrow: self.insert_arrow options
         :return: insert_arrow rtype
         """
@@ -595,24 +599,45 @@ class Cursor(ABC):
                 **insert_arrow
             )
         elif isinstance(source, str):
-            with filesystem.open_input_file(source) as f:
-                self.insert_parquet_file(
-                    table=table,
-                    source=ParquetFile(
-                        f,
-                        buffer_size=buffer_size,
-                        coerce_int96_timestamp_unit=coerce_int96_timestamp_unit
-                    ),
-                    batch_size=batch_size,
+            if file_filters:
+                data: Table = read_table(
+                    source,
+                    coerce_int96_timestamp_unit=coerce_int96_timestamp_unit,
                     buffer_size=buffer_size,
+                    filesystem=filesystem,
+                    filters=file_filters,
+                    use_threads=use_threads
+                )
+                if exclude_columns:
+                    data = data.drop(exclude_columns)
+
+                self.insert_arrow(
+                    table=table,
+                    data=data,
                     cast=cast,
                     safe=safe,
                     commit=commit,
-                    filesystem=filesystem,
-                    use_threads=use_threads,
-                    exclude_columns=exclude_columns,
                     **insert_arrow
                 )
+            else:
+                with filesystem.open_input_file(source) as f:
+                    self.insert_parquet_file(
+                        table=table,
+                        source=ParquetFile(
+                            f,
+                            buffer_size=buffer_size,
+                            coerce_int96_timestamp_unit=coerce_int96_timestamp_unit
+                        ),
+                        batch_size=batch_size,
+                        buffer_size=buffer_size,
+                        cast=cast,
+                        safe=safe,
+                        commit=commit,
+                        filesystem=filesystem,
+                        use_threads=use_threads,
+                        exclude_columns=exclude_columns,
+                        **insert_arrow
+                    )
         else:
             self.insert_parquet_file(
                 table=table,
