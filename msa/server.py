@@ -90,7 +90,7 @@ class MSSQL:
 
         insert_parquet_file["filesystem"] = filesystem
 
-        return self.execute(
+        for _ in self.execute(
             "insert_parquet_file",
             cursor_wrapper=cursor_wrapper,
             result_wrapper=result_wrapper,
@@ -101,4 +101,5 @@ class MSSQL:
                 for ofs in iter_dir_files(filesystem, base_dir)
                 if filter_file(ofs) and ofs.size > 0
             ]
-        )
+        ):
+            pass
