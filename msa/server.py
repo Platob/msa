@@ -36,12 +36,12 @@ class MSSQL:
 
     def cursor_execute(
         self,
-        method: Union[str, Callable[[Cursor], Any], Callable[[Cursor, Any], Any]],
+        method: Union[str, Callable],
         cursor_wrapper: Callable[[Cursor], Cursor] = return_iso,
         result_wrapper: Callable[[Any], Any] = return_iso,
         arguments: tuple[list, dict] = ()
     ):
-        if not isinstance(method, str) and not isinstance(method, Cursor):
+        if not isinstance(method, str) or not callable(method):
             # all in first arg
             method, cursor_wrapper, result_wrapper, arguments = method
 
@@ -68,9 +68,9 @@ class MSSQL:
             for _ in tqdm.tqdm(
                 pool.map(
                     self.cursor_execute,
-                    [
+                    (
                         (method, cursor_wrapper, result_wrapper, arg) for arg in arguments
-                    ],
+                    ),
                     timeout=timeout,
                     chunksize=arguments_fetch_size
                 ),
