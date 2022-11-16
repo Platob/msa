@@ -251,7 +251,7 @@ class Cursor(ABC):
 
     def views(self, catalog: str = "%%", schema: str = "%%", expression: Optional[str] = None):
         stmt = "SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, OBJECT_ID('[' + TABLE_CATALOG + '].[' + " \
-               "TABLE_SCHEMA + '].[' + TABLE_NAME + ']') as oid FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_CATALOG " \
+               "TABLE_SCHEMA + '].[' + TABLE_NAME + ']') as oid FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_CATALOG " \
                "LIKE '%s' AND TABLE_SCHEMA LIKE '%s'" % (catalog, schema)
         if expression:
             stmt += " AND TABLE_NAME LIKE '%s'" % expression
