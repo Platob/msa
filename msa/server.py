@@ -34,7 +34,7 @@ class MSSQL:
     def cursor(self, connect: dict = {}, **kwargs) -> Cursor:
         return self.connect(**connect).cursor(**kwargs)
 
-    def cursor_execute(
+    def cursor_apply(
         self,
         method: Union[str, Callable],
         cursor_wrapper: Callable[[Cursor], Cursor] = return_iso,
@@ -54,7 +54,7 @@ class MSSQL:
             else:
                 return result_wrapper(method(cursor))
 
-    def execute(
+    def map(
         self,
         method: Union[str, Callable],
         cursor_wrapper: Callable = return_iso,
@@ -67,7 +67,7 @@ class MSSQL:
         with ThreadPoolExecutor(concurrency) as pool:
             for _ in tqdm.tqdm(
                 pool.map(
-                    self.cursor_execute,
+                    self.cursor_apply,
                     (
                         (method, cursor_wrapper, result_wrapper, arg) for arg in arguments
                     ),
@@ -89,7 +89,6 @@ class MSSQL:
         concurrency: int = os.cpu_count(),
         timeout: int = None,
         arguments_fetch_size: int = os.cpu_count(),
-        tablock: bool = True,
         **insert_parquet_file
     ):
         # persist table data
@@ -99,9 +98,8 @@ class MSSQL:
         table = (table.catalog, table.schema, table.name)
 
         insert_parquet_file["filesystem"] = filesystem
-        insert_parquet_file["tablock"] = tablock
 
-        return self.execute(
+        return self.map(
             "insert_parquet_file",
             cursor_wrapper=cursor_wrapper,
             result_wrapper=result_wrapper,

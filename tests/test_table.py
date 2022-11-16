@@ -785,7 +785,7 @@ class TableTests(MSSQLTestCase):
 
     def test_concurrent_read(self):
         results = list(
-            self.server.execute(
+            self.server.map(
                 "execute",
                 result_wrapper=lambda x: x.fetch_arrow(),
                 arguments=[
@@ -811,7 +811,7 @@ class TableTests(MSSQLTestCase):
         table = (self.table.catalog, self.table.schema, self.table.name)
 
         list(
-            self.server.execute(
+            self.server.map(
                 "insert_arrow",
                 arguments=[
                     ([table, data], {}),
