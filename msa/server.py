@@ -87,6 +87,7 @@ class MSSQL:
         timeout: int = None,
         arguments_fetch_size: int = os.cpu_count(),
         tablock: bool = True,
+        retry: int = 10,
         **insert_parquet_file
     ):
         # persist table data
@@ -97,6 +98,7 @@ class MSSQL:
 
         insert_parquet_file["filesystem"] = filesystem
         insert_parquet_file["tablock"] = tablock
+        insert_parquet_file["retry"] = retry
 
         return self.map(
             "insert_parquet_file",

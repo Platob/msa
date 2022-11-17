@@ -289,7 +289,8 @@ class Cursor(ABC):
         stmt: str = "",
         commit: bool = True,
         tablock: bool = False,
-        commit_size: int = 1
+        commit_size: int = 1,
+        retry: int = 0
     ):
         """
         Insert values like list[list[Any]]
@@ -302,6 +303,10 @@ class Cursor(ABC):
         :param tablock: see self.prepare_insert_statement or self.prepare_insert_batch_statement
         :param commit_size: number of row batch in insert values
             Must be 0 > batch_size > 1001 and len(columns) * commit_size <= 2100
+        :param retry: number of retry
+            Error example:
+                Transaction (Process ID 56) was deadlocked on lock resources with another process and has been chosen
+                as the deadlock victim. Rerun the transaction. (1205) (SQLExecute)
         :return: None
         """
         if rows:
@@ -320,20 +325,56 @@ class Cursor(ABC):
                     last = rows[0]
                 else:
                     last = rows[-1]
-                    self.executemany(stmt, rows[:-1])
 
-                self.executemany(
-                    prepare_insert_batch_statement(
-                        table, columns, tablock=tablock, commit_size=int(len(last) / len(columns))
-                    ),
-                    [last]
-                )
+                    success, itry = False, 0
+                    while not success:
+                        itry += 1
+                        try:
+                            self.executemany(stmt, rows[:-1])
+                            success = True
+                            break
+                        except Exception as e:
+                            if "Rerun the transaction" in str(e):
+                                if itry > retry:
+                                    raise e
+                            else:
+                                raise e
+
+                success, itry = False, 0
+                while not success:
+                    itry += 1
+                    try:
+                        self.executemany(
+                            prepare_insert_batch_statement(
+                                table, columns, tablock=tablock, commit_size=int(len(last) / len(columns))
+                            ),
+                            [last]
+                        )
+                        success = True
+                        break
+                    except Exception as e:
+                        if "Rerun the transaction" in str(e):
+                            if itry > retry:
+                                raise e
+                        else:
+                            raise e
             else:
-                self.executemany(
-                    stmt if stmt else prepare_insert_statement(table, columns, tablock=tablock),
-                    rows
-                )
-
+                success, itry = False, 0
+                while not success:
+                    itry += 1
+                    try:
+                        self.executemany(
+                            stmt if stmt else prepare_insert_statement(table, columns, tablock=tablock),
+                            rows
+                        )
+                        success = True
+                        break
+                    except Exception as e:
+                        if "Rerun the transaction" in str(e):
+                            if itry > retry:
+                                raise e
+                        else:
+                            raise e
             if commit:
                 self.commit()
 
@@ -472,6 +513,7 @@ class Cursor(ABC):
         check_constraints: bool = True,
         delayed_check_constraints: bool = False,
         batch_apply: Callable[[RecordBatch], RecordBatch] = return_iso,
+        retry: int = 0,
         **insert_options: dict[str, Union[str, int, bool]]
     ):
         table = self.safe_table_or_view(table)
@@ -500,7 +542,8 @@ class Cursor(ABC):
                     stmt=stmt,
                     commit=commit,
                     tablock=tablock,
-                    commit_size=commit_size
+                    commit_size=commit_size,
+                    retry=retry
                 )
             elif isinstance(data, RecordBatchReader):
                 commit_size = self.safe_commit_size(commit_size, len(data.schema.names))
@@ -516,7 +559,8 @@ class Cursor(ABC):
                         stmt=stmt,
                         commit=commit,
                         tablock=tablock,
-                        commit_size=commit_size
+                        commit_size=commit_size,
+                        retry=retry
                     )
             else:
                 for batch in data:
@@ -527,7 +571,8 @@ class Cursor(ABC):
                         stmt=stmt,
                         commit=commit,
                         tablock=tablock,
-                        commit_size=commit_size
+                        commit_size=commit_size,
+                        retry=retry
                     )
         finally:
             if delayed_check_constraints:

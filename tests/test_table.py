@@ -62,7 +62,7 @@ class TableTests(MSSQLTestCase):
 
     def test_prepare_insert_statement_tablock(self):
         self.assertEqual(
-            "INSERT INTO [master].[dbo].[PYMSA_UNITTEST]WITH(TABLOCKX)([a],[AbC Column]) VALUES (?,?)",
+            "INSERT INTO [master].[dbo].[PYMSA_UNITTEST]WITH(TABLOCK)([a],[AbC Column]) VALUES (?,?)",
             prepare_insert_statement(self.table, ["a", "AbC Column"], tablock=True)
         )
 
@@ -78,7 +78,7 @@ class TableTests(MSSQLTestCase):
 
     def test_prepare_insert_batch_statement_tablock(self):
         self.assertEqual(
-            "INSERT INTO [master].[dbo].[PYMSA_UNITTEST]WITH(TABLOCKX)([a],[AbC Column]) VALUES (?,?)",
+            "INSERT INTO [master].[dbo].[PYMSA_UNITTEST]WITH(TABLOCK)([a],[AbC Column]) VALUES (?,?)",
             prepare_insert_batch_statement(self.table, ["a", "AbC Column"], commit_size=1, tablock=True)
         )
 
