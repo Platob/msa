@@ -114,6 +114,7 @@ STRING_DATATYPES = {
     "bigint": DATATYPES[int],
     "bit": DATATYPES[bool],
     "decimal": DATATYPES[decimal.Decimal],
+    "numeric": DATATYPES[decimal.Decimal],
     "float": DATATYPES[float],
     "money": lambda *args, **kwargs: FLOAT64,
     "smallmoney": lambda *args, **kwargs: FLOAT32,

@@ -10,6 +10,7 @@ __all__ = [
 ]
 
 import datetime
+import re
 from typing import Union, Iterable, Generator, Optional, Callable, Sized
 
 import pyarrow
@@ -17,7 +18,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from pyarrow import RecordBatch, Schema, schema as schema_builder, Field, field as field_builder, Array, DataType, \
-    Decimal128Type, Decimal256Type, TimestampType, ArrowInvalid, Time64Type, Table, RecordBatchReader, array
+    Decimal128Type, Decimal256Type, TimestampType, ArrowInvalid, Time64Type, Table, RecordBatchReader, array, Time32Type
 from pyarrow.fs import FileSystem, FileInfo, FileType, FileSelector
 
 from ..config import DEFAULT_SAFE_MODE
@@ -138,8 +139,12 @@ def string_to_date(arr: Array, safe: bool = DEFAULT_SAFE_MODE, **kwargs):
     return string_to_timestamp(arr, TIMESTAMP, safe=safe).cast(DATE, safe)
 
 
-def string_to_time(arr: Array, dtype: Time64Type, safe: bool = DEFAULT_SAFE_MODE, **kwargs):
-    return string_to_timestamp(arr, pyarrow.timestamp(dtype.unit), safe=safe).cast(dtype, safe)
+def string_to_time(arr: Array, dtype: Time32Type, safe: bool = DEFAULT_SAFE_MODE, **kwargs):
+    try:
+        unit = dtype.unit
+    except AttributeError:
+        unit = re.findall(r"\[(.*?)\]", str(dtype))[0]
+    return string_to_timestamp(arr, pyarrow.timestamp(unit), safe=safe).cast(dtype, safe)
 
 
 def timestamp_to_timestamp(arr: Array, dtype: TimestampType, safe: bool = DEFAULT_SAFE_MODE, **kwargs):

@@ -25,12 +25,10 @@ def handle_datetime_offset(dto_value):
 
 def handle_datetime(dto_value, d1900_1_1=datetime(1900, 1, 1)):
     try:
-        tup = struct.unpack("<6hI", dto_value)  # e.g., (2017, 3, 16, 10, 35, 18, 500000000)
+        # e.g., (2017, 3, 16, 10, 35, 18, 500000000)
+        year, month, day, hour, minute, second, ns = struct.unpack("<6hI", dto_value)
         return numpy.datetime64(
-            int(datetime(
-                tup[0], tup[1], tup[2], tup[3], tup[4], tup[5], 0,
-                timezone(timedelta(hours=0, minutes=0))
-            ).timestamp()) * 10 ** 9 + tup[6],
+            f"{year:02}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{ns:09}",
             "ns"
         )
     except struct.error:

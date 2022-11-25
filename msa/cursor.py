@@ -201,19 +201,21 @@ class Cursor(ABC):
         empty = True
 
         for batch in self.fetch_row_batches(n):
-            yield RecordBatch.from_arrays(
-                [
-                    array(
-                        [row[i] for row in batch],
-                        self.schema_arrow[i].type,
-                        from_pandas=False,
-                        safe=safe
-                    )
-                    for i in range(len(self.schema_arrow))
-                ],
-                schema=self.schema_arrow
+            yield cast_arrow(
+                RecordBatch.from_arrays(
+                    [
+                        array(
+                            [row[i] for row in batch],
+                            from_pandas=False,
+                            safe=safe
+                        )
+                        for i in range(len(self.schema_arrow))
+                    ],
+                    names=self.schema_arrow.names
+                ),
+                self.schema_arrow,
+                safe=False
             )
-
             empty = False
 
         if empty:

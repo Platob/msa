@@ -649,7 +649,7 @@ class TableTests(MSSQLTestCase):
         with tempfile.TemporaryDirectory() as base_dir:
             for i in range(num):
                 p.write_table(datas[i], os.path.join(base_dir, "part=%s" % i))
-            list(self.server.insert_parquet_dir(self.table, base_dir))
+            list(self.server.insert_parquet_dir(self.table, base_dir, concurrency=1))
 
         batches = []
         for i in range(num):
